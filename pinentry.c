@@ -1,3 +1,8 @@
+// This file is part of the pinentry-x11 project
+//
+// Copyright (c) 2014 by Mike Sharov <msharov@users.sourceforge.net>
+// This file is free software, distributed under the MIT License.
+
 #include "config.h"
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
@@ -7,18 +12,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <limits.h>
+#include <ctype.h>
 
 //----------------------------------------------------------------------
 
+// X server information
 static Display* _display = NULL;
 static int _screen = 0;
-static Window _w = 0;
-static GC _gc = None;
-static XFontStruct* _font = NULL;
-static XFontStruct* _wfontinfo = NULL;
-static unsigned long _fg = 0, _bg = 0;
-static unsigned _wwidth = 320;
-static unsigned _wheight = 240;
 
 enum {
     a_ATOM,
@@ -39,6 +39,20 @@ enum {
 };
 static Atom _atoms [a_NAtoms] = { None };
 
+// Pinentry window
+static Window _w = 0;
+static GC _gc = None;
+static XFontStruct* _font = NULL;
+static XFontStruct* _wfontinfo = NULL;
+static unsigned long _fg = 0, _bg = 0;
+static unsigned _wwidth = 320;
+static unsigned _wheight = 240;
+
+enum { PASSWORD_MAXLEN = 128 };
+static char _password [PASSWORD_MAXLEN] = "";
+static size_t _passwordLen = 0;
+static bool _accepted = false;
+
 //----------------------------------------------------------------------
 
 static bool OpenX (void);
@@ -47,6 +61,7 @@ static void CreatePinentryWindow (int argc, char** argv);
 static void ClosePinentryWindow (void);
 static void RunXMainLoop (void);
 static void DrawWindow (void);
+static bool OnKey (wchar_t k);
 
 //----------------------------------------------------------------------
 
@@ -58,6 +73,8 @@ int main (int argc, char* argv[])
     }
     CreatePinentryWindow (argc, argv);
     RunXMainLoop();
+    if (_accepted)
+	printf ("Entered password: \"%s\"\n", _password);
     return (EXIT_SUCCESS);
 }
 
@@ -177,16 +194,45 @@ static void RunXMainLoop (void)
 		DrawWindow();
 		break;
 	    case ButtonPress:
-	    case KeyPress:
 		return;
+	    case KeyPress: {
+		KeySym ksym = 0;
+		XLookupString (&e.xkey, NULL, 0, &ksym, NULL);
+		if (OnKey (ksym))
+		    return;
+		} break;
+	    case ClientMessage:
+		if ((Atom) e.xclient.data.l[0] == _atoms[a_WM_DELETE_WINDOW])
+		    return;
+		break;
 	}
     }
 }
 
 static void DrawWindow (void)
 {
+    XClearWindow (_display, _w);
     XDrawRectangle (_display, _w, _gc, 0, 0, _wwidth-1, _wheight-1);
     XDrawRectangle (_display, _w, _gc, _wwidth/4, _wheight/4, _wwidth/2-1, _wheight/2-1);
     int fw = _wfontinfo->max_bounds.width, fh = _wfontinfo->ascent;
     XDrawString (_display, _w, _gc, fw, fh, "Pinentry", strlen("Pinentry"));
+    XDrawString (_display, _w, _gc, fw, fh*2, _password, _passwordLen);
+}
+
+static bool OnKey (wchar_t k)
+{
+    if (k == XK_BackSpace && _passwordLen > 0)
+	_password[--_passwordLen] = 0;
+    else if (k == XK_Return) {
+	_accepted = true;
+	return (true);
+    } else if (k == XK_Escape) {
+	_password[_passwordLen = 0] = 0;
+	return (true);
+    } else if (k >= ' ' && k <= '~' && _passwordLen < sizeof(_password)-1) {
+	_password[_passwordLen] = k;
+	_password[++_passwordLen] = 0;
+    }
+    DrawWindow();
+    return (false);
 }

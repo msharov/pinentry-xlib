@@ -3,7 +3,7 @@
 # Project Configuration						     #
 ######################################################################
 
-PKG_NAME="pinentry-x11"
+PKG_NAME="pinentry"
 PKG_VERSTR="v0.0"
 
 MNT_NAME="Mike Sharov"

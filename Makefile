@@ -34,7 +34,7 @@ $O%.o:	%.c
 .PHONY:	install uninstall
 
 ifdef BINDIR
-EXEI	:= $(addprefix ${BINDIR}/,${EXE})
+EXEI	:= $(addprefix ${BINDIR}/,${EXE}-x11)
 MANI	:= ${MANDIR}/man1/${EXE}.1.gz
 
 install:	${EXEI} ${MANI}

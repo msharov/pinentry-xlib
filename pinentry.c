@@ -57,7 +57,10 @@ typedef struct {
     point_t descsz;
     point_t prompt;
     point_t box;
+    point_t confirmprompt;
+    point_t confirmbox;
     unsigned promptw;
+    unsigned confirmpromptw;
 } layout_t;
 layout_t _wl;
 
@@ -68,10 +71,15 @@ enum {
     MAX_BOXES = 1<<MAX_BOXES_POW	// The number of password char placeholder boxes visible
 };
 static char _password [PASSWORD_MAXLEN] = "";
+static char _confirmBuf [PASSWORD_MAXLEN] = "";
 static char _prompt [PROMPT_MAXLEN] = "PIN:";
+static char _confirmPrompt [PROMPT_MAXLEN] = "";
 static char* _description = NULL;
 static size_t _passwordLen = 0;
+static size_t _confirmBufLen = 0;
 static bool _accepted = false;
+static unsigned _confirms = 0;
+static unsigned _confirmsPass = 0;
 
 //----------------------------------------------------------------------
 
@@ -224,6 +232,131 @@ static void ClosePinentryWindow (void)
     _w = None;
 }
 
+static void LayoutWindow (void)
+{
+    // Window is laid out in font units
+    _wl.f.x = _wfontinfo->max_bounds.width;
+    _wl.f.y = _wfontinfo->ascent;
+    _wl.fl.x = 3*_wl.f.x/2;
+    _wl.fl.y = 3*_wl.f.y/2;
+    // On top is the description of the query
+    _wl.desc.x = _wl.fl.x;
+    _wl.desc.y = _wl.f.y;
+    _wl.descsz.x = 0;
+    _wl.descsz.y = 0;
+    // Measure each line and compute the bounding box
+    for (const char *d = _description, *dend = d+strlen(d), *dlend; d < dend; d = dlend+1) {
+	if (!(dlend = strchr (d, '\n')))
+	    dlend = dend;
+	unsigned lw = XTextWidth (_wfontinfo, d, dlend-d);
+	if (lw > _wl.descsz.x)
+	    _wl.descsz.x = lw;
+	_wl.descsz.y += _wl.fl.y;
+    }
+    // Under that is the prompt and the password mask box line
+    _wl.promptw = XTextWidth (_wfontinfo, _prompt, strlen(_prompt));
+    _wl.prompt.x = _wl.desc.x;
+    _wl.box.x = _wl.prompt.x+_wl.promptw+_wl.f.x;
+    _wl.box.y = _wl.desc.y+_wl.descsz.y+_wl.fl.y;
+    _wl.prompt.y = _wl.box.y+_wl.f.y;
+    // If confirmation is enabled (new password), add it next
+    if (_confirms > 0) {
+	_wl.confirmprompt.x = _wl.prompt.x;
+	_wl.confirmprompt.y = _wl.prompt.y+_wl.fl.y;
+	_wl.confirmpromptw = XTextWidth (_wfontinfo, _confirmPrompt, strlen(_confirmPrompt));
+	if (_confirms > 1)
+	    _wl.confirmpromptw += 2*_wl.f.x;	// Add space for confirm count
+	int wider = _wl.confirmpromptw - _wl.promptw;
+	if (wider > 0) {
+	    _wl.promptw += wider;
+	    _wl.box.x += wider;
+	}
+	_wl.confirmbox.x = _wl.box.x;
+	_wl.confirmbox.y = _wl.box.y+_wl.fl.y;
+    }
+    // Calculate window size
+    unsigned boxlinew = _wl.box.x - _wl.prompt.x + MAX_BOXES*_wl.fl.x;
+    // Width is the max of description width and the box line
+    _wwidth = _wl.descsz.x;
+    if (_wwidth < boxlinew)
+	_wwidth = boxlinew;
+    _wwidth += 2*_wl.fl.x;	// plus margin
+    // Height is the sum of description and the box line, plus margins
+    _wheight = _wl.box.y;
+    if (_confirms > 0)
+	_wheight = _wl.confirmbox.y;
+    _wheight += 2*_wl.fl.y;
+}
+
+static void DrawWindow (void)
+{
+    XClearWindow (_display, _w);
+    // Window border
+    XDrawRectangle (_display, _w, _gc, 1, 1, _wwidth-3, _wheight-3);
+    // Description
+    unsigned l = 0;
+    for (const char *d = _description, *dend = d+strlen(d), *dlend; d < dend; d = dlend+1) {
+	if (!(dlend = strchr (d, '\n')))
+	    dlend = dend;
+	XDrawString (_display, _w, _gc, _wl.desc.x, _wl.desc.y+(++l)*_wl.fl.y, d, dlend-d);
+    }
+    // Prompt
+    XDrawString (_display, _w, _gc, _wl.prompt.x, _wl.prompt.y, _prompt, strlen(_prompt));
+    // Password box mask
+    DrawPasswordBoxLine (_wl.box.x, _wl.box.y, _passwordLen);
+    // Confirmation prompt
+    if (_confirms && _confirmsPass <= _confirms) {
+	XDrawString (_display, _w, _gc, _wl.confirmprompt.x, _wl.confirmprompt.y, _confirmPrompt, strlen(_confirmPrompt));
+	DrawPasswordBoxLine (_wl.confirmbox.x, _wl.confirmbox.y, _confirmBufLen);
+    }
+}
+
+static void DrawPasswordBoxLine (unsigned x, unsigned y, unsigned pwlen)
+{
+    const unsigned vispwlen = pwlen % MAX_BOXES, filldir = (pwlen >> MAX_BOXES_POW) & 1;
+    for (unsigned bx = 0; bx < MAX_BOXES; ++bx) {
+	// Rolling box line; fill boxes until the end, then clear them, then fill again
+	if ((bx < vispwlen) ^ filldir)
+	    XFillRectangle (_display, _w, _gc, x+bx*_wl.fl.x, y, _wl.f.x, _wl.f.y);
+	else
+	    XDrawRectangle (_display, _w, _gc, x+bx*_wl.fl.x, y, _wl.f.x-1, _wl.f.y-1);
+    }
+}
+
+static bool OnKey (wchar_t k)
+{
+    if (k == XK_BackSpace && _passwordLen > 0)
+	_password[--_passwordLen] = 0;
+    else if (k == XK_Return) {
+	if (_confirmsPass++ && 0 != memcmp (_password, _confirmBuf, _passwordLen))
+	    ++_confirms;	// Ask again if does not match
+	snprintf (_confirmPrompt, sizeof(_confirmPrompt), _confirms > 1 ? "Confirm %u:" : "Confirm:", _confirmsPass);
+	memset (_confirmBuf, 0, sizeof(_confirmBuf));
+	_confirmBufLen = 0;
+	if (_confirmsPass > _confirms) {
+	    _confirmsPass = 0;
+	    return (_accepted = true);
+	}
+    } else if (k == XK_Escape) {
+	_password[_passwordLen = 0] = 0;
+	return (true);
+    } else if (k >= ' ' && k <= '~') {
+	if (_confirmsPass > 0) {
+	    if (_confirmBufLen < sizeof(_confirmBuf)-1) {
+		_confirmBuf[_confirmBufLen] = k;
+		_confirmBuf[++_confirmBufLen] = 0;
+	    }
+	} else {
+	    if (_passwordLen < sizeof(_password)-1) {
+		_password[_passwordLen] = k;
+		_password[++_passwordLen] = 0;
+	    }
+	}
+    }
+    DrawWindow();
+    return (false);
+}
+
 static void RunXMainLoop (void)
 {
     for (XEvent e;;) {
@@ -251,86 +384,4 @@ static void RunXMainLoop (void)
 		break;
 	}
     }
-}
-
-static void LayoutWindow (void)
-{
-    _wl.f.x = _wfontinfo->max_bounds.width;
-    _wl.f.y = _wfontinfo->ascent;
-    _wl.fl.x = 3*_wl.f.x/2;
-    _wl.fl.y = 3*_wl.f.y/2;
-    _wl.desc.x = _wl.fl.x;
-    _wl.desc.y = _wl.f.y;
-    _wl.descsz.x = 0;
-    _wl.descsz.y = 0;
-    for (const char *d = _description, *dend = d+strlen(d), *dlend; d < dend; d = dlend+1) {
-	if (!(dlend = strchr (d, '\n')))
-	    dlend = dend;
-	unsigned lw = XTextWidth (_wfontinfo, d, dlend-d);
-	if (lw > _wl.descsz.x)
-	    _wl.descsz.x = lw;
-	_wl.descsz.y += _wl.fl.y;
-    }
-    _wl.promptw = XTextWidth (_wfontinfo, _prompt, strlen(_prompt));
-    _wl.prompt.x = _wl.desc.x;
-    _wl.box.x = _wl.prompt.x+_wl.promptw+_wl.f.x;
-    _wl.box.y = _wl.desc.y+_wl.descsz.y+_wl.fl.y;
-    _wl.prompt.y = _wl.box.y+_wl.f.y;
-    // Calculate window size
-    unsigned boxlinew = _wl.box.x - _wl.prompt.x + MAX_BOXES*_wl.fl.x;
-    // Width is the max of description width and the box line
-    _wwidth = _wl.descsz.x;
-    if (_wwidth < boxlinew)
-	_wwidth = boxlinew;
-    _wwidth += 2*_wl.fl.x;	// plus margin
-    // Height is the sum of description and the box line, plus margins
-    _wheight = _wl.box.y + 2*_wl.fl.y;
-}
-
-static void DrawWindow (void)
-{
-    XClearWindow (_display, _w);
-    // Window border
-    XDrawRectangle (_display, _w, _gc, 1, 1, _wwidth-3, _wheight-3);
-    // Description
-    unsigned l = 0;
-    for (const char *d = _description, *dend = d+strlen(d), *dlend; d < dend; d = dlend+1) {
-	if (!(dlend = strchr (d, '\n')))
-	    dlend = dend;
-	XDrawString (_display, _w, _gc, _wl.desc.x, _wl.desc.y+(++l)*_wl.fl.y, d, dlend-d);
-    }
-    // Prompt
-    XDrawString (_display, _w, _gc, _wl.prompt.x, _wl.prompt.y, _prompt, strlen(_prompt));
-    // Password box mask
-    DrawPasswordBoxLine (_wl.box.x, _wl.box.y, _passwordLen);
-}
-
-static void DrawPasswordBoxLine (unsigned x, unsigned y, unsigned pwlen)
-{
-    const unsigned vispwlen = pwlen % MAX_BOXES, filldir = (pwlen >> MAX_BOXES_POW) & 1;
-    for (unsigned bx = 0; bx < MAX_BOXES; ++bx) {
-	// Rolling box line; fill boxes until the end, then clear them, then fill again
-	if ((bx < vispwlen) ^ filldir)
-	    XFillRectangle (_display, _w, _gc, x+bx*_wl.fl.x, y, _wl.f.x, _wl.f.y);
-	else
-	    XDrawRectangle (_display, _w, _gc, x+bx*_wl.fl.x, y, _wl.f.x-1, _wl.f.y-1);
-    }
-}
-
-static bool OnKey (wchar_t k)
-{
-    if (k == XK_BackSpace && _passwordLen > 0)
-	_password[--_passwordLen] = 0;
-    else if (k == XK_Return) {
-	_accepted = true;
-	return (true);
-    } else if (k == XK_Escape) {
-	_password[_passwordLen = 0] = 0;
-	return (true);
-    } else if (k >= ' ' && k <= '~' && _passwordLen < sizeof(_password)-1) {
-	_password[_passwordLen] = k;
-	_password[++_passwordLen] = 0;
-    }
-    DrawWindow();
-    return (false);
 }

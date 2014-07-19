@@ -45,11 +45,31 @@ static GC _gc = None;
 static XFontStruct* _font = NULL;
 static XFontStruct* _wfontinfo = NULL;
 static unsigned long _fg = 0, _bg = 0;
-static unsigned _wwidth = 320;
-static unsigned _wheight = 240;
+static unsigned _wwidth = 400;
+static unsigned _wheight = 150;
+typedef struct {
+    unsigned x, y;
+} point_t;
+typedef struct {
+    point_t f;
+    point_t fl;
+    point_t desc;
+    point_t descsz;
+    point_t prompt;
+    point_t box;
+    unsigned promptw;
+} layout_t;
+layout_t _wl;
 
-enum { PASSWORD_MAXLEN = 128 };
+enum {
+    PASSWORD_MAXLEN = 128,
+    PROMPT_MAXLEN = 16,
+    MAX_BOXES_POW = 4,
+    MAX_BOXES = 1<<MAX_BOXES_POW	// The number of password char placeholder boxes visible
+};
 static char _password [PASSWORD_MAXLEN] = "";
+static char _prompt [PROMPT_MAXLEN] = "PIN:";
+static char* _description = NULL;
 static size_t _passwordLen = 0;
 static bool _accepted = false;
 
@@ -60,13 +80,17 @@ static void CloseX (void);
 static void CreatePinentryWindow (int argc, char** argv);
 static void ClosePinentryWindow (void);
 static void RunXMainLoop (void);
+static void LayoutWindow (void);
 static void DrawWindow (void);
+static void DrawPasswordBoxLine (unsigned x, unsigned y, unsigned pwlen);
 static bool OnKey (wchar_t k);
 
 //----------------------------------------------------------------------
 
 int main (int argc, char* argv[])
 {
+    _description = "Please enter the passphrase to\nunlock the public key John Doe <jdoe@aol.com>\nFingerprint 08 D7 A9 BB";
+    snprintf (_prompt, sizeof(_prompt), "%s:", "Passphrase");
     if (!OpenX()) {
 	printf ("ERR Unable to open X display\n");
 	return (EXIT_FAILURE);
@@ -80,14 +104,30 @@ int main (int argc, char* argv[])
 
 static bool OpenX (void)
 {
+    // Open display
     _display = XOpenDisplay (NULL);
     if (!_display)
 	return (false);
     atexit (CloseX);
     _screen = DefaultScreen (_display);
-    _fg = WhitePixel(_display, _screen);
-    _bg = BlackPixel(_display, _screen);
-    _font = XLoadQueryFont (_display, "*terminus-medium-r-normal--18*");
+    // Allocate colors
+    const char* fgname = XGetDefault (_display, PINENTRY_NAME, "foreground");
+    XColor color, dbcolor;
+    if (fgname && XAllocNamedColor (_display, DefaultColormap (_display,_screen), fgname, &color, &dbcolor))
+	_fg = color.pixel;
+    else
+	_fg = WhitePixel(_display, _screen);
+    const char* bgname = XGetDefault (_display, PINENTRY_NAME, "background");
+    if (bgname && XAllocNamedColor (_display, DefaultColormap (_display,_screen), bgname, &color, &dbcolor))
+	_bg = color.pixel;
+    else
+	_bg = BlackPixel(_display, _screen);
+    // Load font
+    const char* fontname = XGetDefault (_display, PINENTRY_NAME, "font");
+    if (!fontname)
+	fontname = "10x20";
+    _font = XLoadQueryFont (_display, fontname);
+    // Get Atom ids needed to create a window
     //{{{ c_AtomNames - parallel to enum
     static const char* c_AtomNames [a_NAtoms] = {
 	"ATOM",
@@ -122,9 +162,25 @@ static void CloseX (void)
 
 static void CreatePinentryWindow (int argc, char** argv)
 {
-    _w = XCreateSimpleWindow (_display, RootWindow(_display, _screen), 0, 0, _wwidth, _wheight, 0, _fg, _bg);
+    _w = XCreateSimpleWindow (_display, RootWindow(_display, _screen), 0, 0, 1, 1, 0, _fg, _bg);
 
     XSelectInput (_display, _w, ExposureMask| KeyPressMask| ButtonPressMask| StructureNotifyMask);
+
+    // Create and setup the GC
+    _gc = XCreateGC (_display, _w, 0, NULL);
+    XSetForeground (_display, _gc, _fg);
+
+    if (_font)
+	XSetFont (_display, _gc, _font->fid);
+    _wfontinfo = XQueryFont (_display, XGContextFromGC (_gc));
+    if (!_wfontinfo) {
+	printf ("ERR No fonts available\n");
+	exit (EXIT_FAILURE);
+    }
+
+    // Now layout the controls, measuring the actual necessary window size
+    LayoutWindow();
+    XResizeWindow (_display, _w, _wwidth, _wheight);
 
     // Setup properties for the window manager
     // The size hints
@@ -151,18 +207,6 @@ static void CreatePinentryWindow (int argc, char** argv)
     XChangeProperty (_display, _w, _atoms[a_NET_WM_WINDOW_TYPE], _atoms[a_ATOM], 32, PropModeReplace, (const unsigned char*) &_atoms[a_NET_WM_WINDOW_TYPE_DIALOG], 1);
     // _NET_WM_STATE set to NORMAL size, MODAL, ABOVE, and DEMANDS_ATTENTION
     XChangeProperty (_display, _w, _atoms[a_NET_WM_STATE], _atoms[a_ATOM], 32, PropModeReplace, (const unsigned char*) &_atoms[a_NET_WM_STATE_NORMAL], 4);
-
-    // Create and setup the GC
-    _gc = XCreateGC (_display, _w, 0, NULL);
-    XSetForeground (_display, _gc, _fg);
-
-    if (_font)
-	XSetFont (_display, _gc, _font->fid);
-    _wfontinfo = XQueryFont (_display, XGContextFromGC (_gc));
-    if (!_wfontinfo) {
-	printf ("ERR No fonts available\n");
-	exit (EXIT_FAILURE);
-    }
 
     // When all of the above is done, map the window
     XMapRaised (_display, _w);
@@ -209,14 +253,68 @@ static void RunXMainLoop (void)
     }
 }
 
+static void LayoutWindow (void)
+{
+    _wl.f.x = _wfontinfo->max_bounds.width;
+    _wl.f.y = _wfontinfo->ascent;
+    _wl.fl.x = 3*_wl.f.x/2;
+    _wl.fl.y = 3*_wl.f.y/2;
+    _wl.desc.x = _wl.fl.x;
+    _wl.desc.y = _wl.f.y;
+    _wl.descsz.x = 0;
+    _wl.descsz.y = 0;
+    for (const char *d = _description, *dend = d+strlen(d), *dlend; d < dend; d = dlend+1) {
+	if (!(dlend = strchr (d, '\n')))
+	    dlend = dend;
+	unsigned lw = XTextWidth (_wfontinfo, d, dlend-d);
+	if (lw > _wl.descsz.x)
+	    _wl.descsz.x = lw;
+	_wl.descsz.y += _wl.fl.y;
+    }
+    _wl.promptw = XTextWidth (_wfontinfo, _prompt, strlen(_prompt));
+    _wl.prompt.x = _wl.desc.x;
+    _wl.box.x = _wl.prompt.x+_wl.promptw+_wl.f.x;
+    _wl.box.y = _wl.desc.y+_wl.descsz.y+_wl.fl.y;
+    _wl.prompt.y = _wl.box.y+_wl.f.y;
+    // Calculate window size
+    unsigned boxlinew = _wl.box.x - _wl.prompt.x + MAX_BOXES*_wl.fl.x;
+    // Width is the max of description width and the box line
+    _wwidth = _wl.descsz.x;
+    if (_wwidth < boxlinew)
+	_wwidth = boxlinew;
+    _wwidth += 2*_wl.fl.x;	// plus margin
+    // Height is the sum of description and the box line, plus margins
+    _wheight = _wl.box.y + 2*_wl.fl.y;
+}
+
 static void DrawWindow (void)
 {
     XClearWindow (_display, _w);
-    XDrawRectangle (_display, _w, _gc, 0, 0, _wwidth-1, _wheight-1);
-    XDrawRectangle (_display, _w, _gc, _wwidth/4, _wheight/4, _wwidth/2-1, _wheight/2-1);
-    int fw = _wfontinfo->max_bounds.width, fh = _wfontinfo->ascent;
-    XDrawString (_display, _w, _gc, fw, fh, "Pinentry", strlen("Pinentry"));
-    XDrawString (_display, _w, _gc, fw, fh*2, _password, _passwordLen);
+    // Window border
+    XDrawRectangle (_display, _w, _gc, 1, 1, _wwidth-3, _wheight-3);
+    // Description
+    unsigned l = 0;
+    for (const char *d = _description, *dend = d+strlen(d), *dlend; d < dend; d = dlend+1) {
+	if (!(dlend = strchr (d, '\n')))
+	    dlend = dend;
+	XDrawString (_display, _w, _gc, _wl.desc.x, _wl.desc.y+(++l)*_wl.fl.y, d, dlend-d);
+    }
+    // Prompt
+    XDrawString (_display, _w, _gc, _wl.prompt.x, _wl.prompt.y, _prompt, strlen(_prompt));
+    // Password box mask
+    DrawPasswordBoxLine (_wl.box.x, _wl.box.y, _passwordLen);
+}
+
+static void DrawPasswordBoxLine (unsigned x, unsigned y, unsigned pwlen)
+{
+    const unsigned vispwlen = pwlen % MAX_BOXES, filldir = (pwlen >> MAX_BOXES_POW) & 1;
+    for (unsigned bx = 0; bx < MAX_BOXES; ++bx) {
+	// Rolling box line; fill boxes until the end, then clear them, then fill again
+	if ((bx < vispwlen) ^ filldir)
+	    XFillRectangle (_display, _w, _gc, x+bx*_wl.fl.x, y, _wl.f.x, _wl.f.y);
+	else
+	    XDrawRectangle (_display, _w, _gc, x+bx*_wl.fl.x, y, _wl.f.x-1, _wl.f.y-1);
+    }
 }
 
 static bool OnKey (wchar_t k)

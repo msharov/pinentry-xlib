@@ -313,6 +313,12 @@ static void DrawWindow (void)
 	    const unsigned quality = ComputeQuality(), barw = (MAX_BOXES-1)*_wl.fl.x+_wl.f.x, barh = _wl.f.y;
 	    XDrawRectangle (_display, _w, _gc, _wl.confirmbox.x, _wl.confirmbox.y, barw-1, barh-1);
 	    XFillRectangle (_display, _w, _gc, _wl.confirmbox.x, _wl.confirmbox.y, quality*barw/MAX_QUALITY, barh);
+	    // Draw good password boundaries.
+	    // 56 bits is good enough against a single adversary with a GPU cracker.
+	    // 80 bits is good enough for all but the most sensitive stuff
+	    enum { BAD_QUALITY = 56, GOOD_QUALITY = 80 };
+	    XDrawRectangle (_display, _w, _gc, _wl.confirmbox.x + BAD_QUALITY*barw/MAX_QUALITY, _wl.confirmbox.y,
+						(GOOD_QUALITY-BAD_QUALITY)*barw/MAX_QUALITY, barh-1);
 	} else {		// Confirmation prompt and boxes
 	    XDrawString (_display, _w, _gc, _wl.confirmprompt.x, _wl.confirmprompt.y, _confirmPrompt, strlen(_confirmPrompt));
 	    DrawPasswordBoxLine (_wl.confirmbox.x, _wl.confirmbox.y, _confirmBufLen);
@@ -349,13 +355,7 @@ static unsigned ComputeQuality (void)
     // c_SetBits/16 is the set size for each character
     static const unsigned char c_SetBits[16] = { 0,53,75,83,75,83,91,95,81,87,94,98,94,98,103,105 };
     unsigned passwordBits = _passwordLen*c_SetBits[have]/16;
-    // 56 bits is ok against a single adversary with a GPU cracker,
-    // 80 should be enough for all but the most sensitive information
-    enum { WorstBits = 56, BestBits = WorstBits+32 };
-    // Rescale that to 0..MAX_QUALITY range
-    if (passwordBits < WorstBits)	return (0);
-    else if (passwordBits > BestBits)	return (MAX_QUALITY);
-    else return ((passwordBits-WorstBits)*MAX_QUALITY/(BestBits-WorstBits));
+    return (passwordBits > MAX_QUALITY ? MAX_QUALITY : passwordBits);
 }
 
 static bool OnKey (wchar_t k)

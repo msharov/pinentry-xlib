@@ -403,10 +403,11 @@ static bool OnKey (wchar_t k)
     } else if (k == XK_Escape) {
 	_password[_passwordLen = 0] = 0;
 	return (true);
-    } else if (k == XK_BackSpace && _passwordLen > 0) {
-	if (_confirmsPass > 0)
-	    _confirmBuf[--_confirmBufLen] = 0;
-	else
+    } else if (k == XK_BackSpace || k == XK_Delete) {
+	if (_confirmsPass > 0) {
+	    if (_confirmBufLen > 0)
+		_confirmBuf[--_confirmBufLen] = 0;
+	} else if (_passwordLen > 0)
 	    _password[--_passwordLen] = 0;
     } else if (k >= ' ' && k <= '~') {
 	if (_confirmsPass > 0) {

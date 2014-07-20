@@ -67,6 +67,7 @@ layout_t _wl;
 enum {
     PASSWORD_MAXLEN = 128,
     PROMPT_MAXLEN = 16,
+    MAX_QUALITY = 128,
     MAX_BOXES_POW = 4,
     MAX_BOXES = 1<<MAX_BOXES_POW	// The number of password char placeholder boxes visible
 };
@@ -91,6 +92,7 @@ static void RunXMainLoop (void);
 static void LayoutWindow (void);
 static void DrawWindow (void);
 static void DrawPasswordBoxLine (unsigned x, unsigned y, unsigned pwlen);
+static unsigned ComputeQuality (void);
 static bool OnKey (wchar_t k);
 
 //----------------------------------------------------------------------
@@ -304,10 +306,17 @@ static void DrawWindow (void)
     XDrawString (_display, _w, _gc, _wl.prompt.x, _wl.prompt.y, _prompt, strlen(_prompt));
     // Password box mask
     DrawPasswordBoxLine (_wl.box.x, _wl.box.y, _passwordLen);
-    // Confirmation prompt
-    if (_confirms && _confirmsPass <= _confirms) {
-	XDrawString (_display, _w, _gc, _wl.confirmprompt.x, _wl.confirmprompt.y, _confirmPrompt, strlen(_confirmPrompt));
-	DrawPasswordBoxLine (_wl.confirmbox.x, _wl.confirmbox.y, _confirmBufLen);
+    // Second line for new passwords
+    if (_confirms) {
+	if (!_confirmsPass) {	// Quality bar
+	    XDrawString (_display, _w, _gc, _wl.confirmprompt.x, _wl.confirmprompt.y, "Quality:", strlen("Quality:"));
+	    const unsigned quality = ComputeQuality(), barw = (MAX_BOXES-1)*_wl.fl.x+_wl.f.x, barh = _wl.f.y;
+	    XDrawRectangle (_display, _w, _gc, _wl.confirmbox.x, _wl.confirmbox.y, barw-1, barh-1);
+	    XFillRectangle (_display, _w, _gc, _wl.confirmbox.x, _wl.confirmbox.y, quality*barw/MAX_QUALITY, barh);
+	} else {		// Confirmation prompt and boxes
+	    XDrawString (_display, _w, _gc, _wl.confirmprompt.x, _wl.confirmprompt.y, _confirmPrompt, strlen(_confirmPrompt));
+	    DrawPasswordBoxLine (_wl.confirmbox.x, _wl.confirmbox.y, _confirmBufLen);
+	}
     }
 }
 
@@ -321,6 +330,32 @@ static void DrawPasswordBoxLine (unsigned x, unsigned y, unsigned pwlen)
 	else
 	    XDrawRectangle (_display, _w, _gc, x+bx*_wl.fl.x, y, _wl.f.x-1, _wl.f.y-1);
     }
+}
+
+static unsigned ComputeQuality (void)
+{
+    // First get the charset size by checking for elements in each subset
+    enum { Numbers = 1, Lowercase = 2, Uppercase = 4, Symbols = 8 };
+    unsigned have = 0;
+    for (unsigned i = 0; i < _passwordLen; ++i) {
+	char c = _password[i];
+	if (c >= '0' && c <= '9')	have |= Numbers;
+	else if (c >= 'a' && c <= 'z')	have |= Lowercase;
+	else if (c >= 'A' && c <= 'Z')	have |= Uppercase;
+	else				have |= Symbols;
+    }
+    // Bits per set is: c_SetCount[] = { 10, 26, 26, 33 };
+    // SetBits is a lookup table of log2(count)*16 (to avoid linking with -lm)
+    // c_SetBits/16 is the set size for each character
+    static const unsigned char c_SetBits[16] = { 0,53,75,83,75,83,91,95,81,87,94,98,94,98,103,105 };
+    unsigned passwordBits = _passwordLen*c_SetBits[have]/16;
+    // 56 bits is ok against a single adversary with a GPU cracker,
+    // 80 should be enough for all but the most sensitive information
+    enum { WorstBits = 56, BestBits = WorstBits+32 };
+    // Rescale that to 0..MAX_QUALITY range
+    if (passwordBits < WorstBits)	return (0);
+    else if (passwordBits > BestBits)	return (MAX_QUALITY);
+    else return ((passwordBits-WorstBits)*MAX_QUALITY/(BestBits-WorstBits));
 }
 
 static bool OnKey (wchar_t k)

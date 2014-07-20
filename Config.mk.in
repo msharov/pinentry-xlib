@@ -30,5 +30,6 @@ ifdef DEBUG
     CFLAGS	+= -O0 -g
 else
     CFLAGS	+= -Os -g0 -DNDEBUG=1
+    LDFLAGS	+= -s
 endif
 O		:= .o/

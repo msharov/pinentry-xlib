@@ -31,6 +31,9 @@ extern edlgtype_t _dialogType;
 extern char* _description;
 extern char _prompt [PROMPT_MAXLEN];
 extern unsigned _confirms;
+extern unsigned _parentWindow;
+extern unsigned _entryTimeout;
+extern bool _nograb;
 
 // Dialog return value
 extern char _password [PASSWORD_MAXLEN];

@@ -17,6 +17,9 @@ edlgtype_t _dialogType = PromptForPassword;
 char* _description = NULL;
 char _prompt [PROMPT_MAXLEN] = DEFAULT_PASSWORD_PROMPT;
 unsigned _confirms = 0;
+unsigned _parentWindow = 0;
+unsigned _entryTimeout = 0;
+bool _nograb = false;
 
 char _password [PASSWORD_MAXLEN] = "";
 size_t _passwordLen = 0;
@@ -189,7 +192,7 @@ bool RunMainDialog (void)
 
 static void CreatePinentryWindow (void)
 {
-    _w = XCreateSimpleWindow (_display, RootWindow(_display, _screen), 0, 0, 1, 1, 0, _fg, _bg);
+    _w = XCreateSimpleWindow (_display, _parentWindow ? _parentWindow :  RootWindow(_display, _screen), 0, 0, 1, 1, 0, _fg, _bg);
 
     XSelectInput (_display, _w, ExposureMask| KeyPressMask| ButtonPressMask| StructureNotifyMask);
 

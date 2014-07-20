@@ -17,3 +17,11 @@
 
 // Using GNU-specific glibc features
 #define _GNU_SOURCE
+
+#define DEFAULT_PASSWORD_PROMPT		"PIN:"
+#define SHOW_MESSAGE_PROMPT		"Press Enter to continue."
+#define ASK_YES_NO_QUESTION_PROMPT	"Enter to continue, Esc to cancel."
+#define QUALITY_PROMPT			"Quality:"
+#define SINGLE_CONFIRM_PROMPT		"Confirm:"
+#define MULTI_CONFIRM_PROMPT		"Confirm %u:"
+#define DEFAULT_FONT_NAME		"10x20"

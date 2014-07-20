@@ -45,24 +45,23 @@ static GC _gc = None;
 static XFontStruct* _font = NULL;
 static XFontStruct* _wfontinfo = NULL;
 static unsigned long _fg = 0, _bg = 0;
-static unsigned _wwidth = 400;
-static unsigned _wheight = 150;
+static unsigned _wwidth = 0;
+static unsigned _wheight = 0;
 typedef struct {
     unsigned x, y;
 } point_t;
-typedef struct {
-    point_t f;
-    point_t fl;
-    point_t desc;
-    point_t descsz;
-    point_t prompt;
-    point_t box;
-    point_t confirmprompt;
-    point_t confirmbox;
-    unsigned promptw;
-    unsigned confirmpromptw;
-} layout_t;
-layout_t _wl;
+static struct {
+    point_t	f;
+    point_t	fl;
+    point_t	desc;
+    point_t	descsz;
+    point_t	prompt;
+    point_t	box;
+    point_t	confirmprompt;
+    point_t	confirmbox;
+    unsigned	promptw;
+    unsigned	confirmpromptw;
+} _wl;
 
 enum {
     PASSWORD_MAXLEN = 128,
@@ -73,7 +72,7 @@ enum {
 };
 static char _password [PASSWORD_MAXLEN] = "";
 static char _confirmBuf [PASSWORD_MAXLEN] = "";
-static char _prompt [PROMPT_MAXLEN] = "PIN:";
+static char _prompt [PROMPT_MAXLEN] = DEFAULT_PASSWORD_PROMPT;
 static char _confirmPrompt [PROMPT_MAXLEN] = "";
 static char* _description = NULL;
 static size_t _passwordLen = 0;
@@ -81,6 +80,11 @@ static size_t _confirmBufLen = 0;
 static bool _accepted = false;
 static unsigned _confirms = 0;
 static unsigned _confirmsPass = 0;
+static enum {
+    PromptForPassword,
+    ShowMessage,
+    AskYesNoQuestion
+} _dialogType = AskYesNoQuestion;
 
 //----------------------------------------------------------------------
 
@@ -95,6 +99,8 @@ static void DrawPasswordBoxLine (unsigned x, unsigned y, unsigned pwlen);
 static unsigned ComputeQuality (void);
 static bool OnKey (wchar_t k);
 
+#define STRBLK(s)	s,strlen(s)
+
 //----------------------------------------------------------------------
 
 int main (int argc, char* argv[])
@@ -107,8 +113,13 @@ int main (int argc, char* argv[])
     }
     CreatePinentryWindow (argc, argv);
     RunXMainLoop();
-    if (_accepted)
-	printf ("Entered password: \"%s\"\n", _password);
+    if (_dialogType == PromptForPassword) {
+	if (_accepted)
+	    printf ("Entered password: \"%s\"\n", _password);
+	else
+	    puts ("Entry cancelled");
+    } else if (_dialogType == AskYesNoQuestion)
+	puts (_accepted ? "Yes" : "No");
     return (EXIT_SUCCESS);
 }
 
@@ -135,7 +146,7 @@ static bool OpenX (void)
     // Load font
     const char* fontname = XGetDefault (_display, PINENTRY_NAME, "font");
     if (!fontname)
-	fontname = "10x20";
+	fontname = DEFAULT_FONT_NAME;
     _font = XLoadQueryFont (_display, fontname);
     // Get Atom ids needed to create a window
     //{{{ c_AtomNames - parallel to enum
@@ -205,7 +216,7 @@ static void CreatePinentryWindow (int argc, char** argv)
     // Hostname
     char hostname [HOST_NAME_MAX];
     if (0 == gethostname (hostname, sizeof(hostname)))
-	XChangeProperty (_display, _w, _atoms[a_WM_CLIENT_MACHINE], _atoms[a_STRING], 8, PropModeReplace, (const unsigned char*) hostname, strlen(hostname));
+	XChangeProperty (_display, _w, _atoms[a_WM_CLIENT_MACHINE], _atoms[a_STRING], 8, PropModeReplace, (const unsigned char*) STRBLK(hostname));
     // Process id
     unsigned int pid = getpid();
     XChangeProperty (_display, _w, _atoms[a_NET_WM_PID], _atoms[a_CARDINAL], 32, PropModeReplace, (const unsigned char*) &pid, 1);
@@ -256,7 +267,7 @@ static void LayoutWindow (void)
 	_wl.descsz.y += _wl.fl.y;
     }
     // Under that is the prompt and the password mask box line
-    _wl.promptw = XTextWidth (_wfontinfo, _prompt, strlen(_prompt));
+    _wl.promptw = XTextWidth (_wfontinfo, STRBLK(_prompt));
     _wl.prompt.x = _wl.desc.x;
     _wl.box.x = _wl.prompt.x+_wl.promptw+_wl.f.x;
     _wl.box.y = _wl.desc.y+_wl.descsz.y+_wl.fl.y;
@@ -265,7 +276,7 @@ static void LayoutWindow (void)
     if (_confirms > 0) {
 	_wl.confirmprompt.x = _wl.prompt.x;
 	_wl.confirmprompt.y = _wl.prompt.y+_wl.fl.y;
-	_wl.confirmpromptw = XTextWidth (_wfontinfo, _confirmPrompt, strlen(_confirmPrompt));
+	_wl.confirmpromptw = XTextWidth (_wfontinfo, STRBLK(_confirmPrompt));
 	if (_confirms > 1)
 	    _wl.confirmpromptw += 2*_wl.f.x;	// Add space for confirm count
 	int wider = _wl.confirmpromptw - _wl.promptw;
@@ -302,27 +313,38 @@ static void DrawWindow (void)
 	    dlend = dend;
 	XDrawString (_display, _w, _gc, _wl.desc.x, _wl.desc.y+(++l)*_wl.fl.y, d, dlend-d);
     }
+
+    // If just showing a message, the prompt line has accept instructions
+    if (_dialogType == ShowMessage) {
+	XDrawString (_display, _w, _gc, _wl.prompt.x, _wl.prompt.y, STRBLK(SHOW_MESSAGE_PROMPT));
+	return;
+    } else if (_dialogType == AskYesNoQuestion) {
+	XDrawString (_display, _w, _gc, _wl.prompt.x, _wl.prompt.y, STRBLK(ASK_YES_NO_QUESTION_PROMPT));
+	return;
+    }
+
     // Prompt
-    XDrawString (_display, _w, _gc, _wl.prompt.x, _wl.prompt.y, _prompt, strlen(_prompt));
+    XDrawString (_display, _w, _gc, _wl.prompt.x, _wl.prompt.y, STRBLK(_prompt));
     // Password box mask
     DrawPasswordBoxLine (_wl.box.x, _wl.box.y, _passwordLen);
+
     // Second line for new passwords
-    if (_confirms) {
-	if (!_confirmsPass) {	// Quality bar
-	    XDrawString (_display, _w, _gc, _wl.confirmprompt.x, _wl.confirmprompt.y, "Quality:", strlen("Quality:"));
-	    const unsigned quality = ComputeQuality(), barw = (MAX_BOXES-1)*_wl.fl.x+_wl.f.x, barh = _wl.f.y;
-	    XDrawRectangle (_display, _w, _gc, _wl.confirmbox.x, _wl.confirmbox.y, barw-1, barh-1);
-	    XFillRectangle (_display, _w, _gc, _wl.confirmbox.x, _wl.confirmbox.y, quality*barw/MAX_QUALITY, barh);
-	    // Draw good password boundaries.
-	    // 56 bits is good enough against a single adversary with a GPU cracker.
-	    // 80 bits is good enough for all but the most sensitive stuff
-	    enum { BAD_QUALITY = 56, GOOD_QUALITY = 80 };
-	    XDrawRectangle (_display, _w, _gc, _wl.confirmbox.x + BAD_QUALITY*barw/MAX_QUALITY, _wl.confirmbox.y,
-						(GOOD_QUALITY-BAD_QUALITY)*barw/MAX_QUALITY, barh-1);
-	} else {		// Confirmation prompt and boxes
-	    XDrawString (_display, _w, _gc, _wl.confirmprompt.x, _wl.confirmprompt.y, _confirmPrompt, strlen(_confirmPrompt));
-	    DrawPasswordBoxLine (_wl.confirmbox.x, _wl.confirmbox.y, _confirmBufLen);
-	}
+    if (!_confirms)
+	return;
+    if (!_confirmsPass) {	// Quality bar
+	XDrawString (_display, _w, _gc, _wl.confirmprompt.x, _wl.confirmprompt.y, STRBLK(QUALITY_PROMPT));
+	const unsigned quality = ComputeQuality(), barw = (MAX_BOXES-1)*_wl.fl.x+_wl.f.x, barh = _wl.f.y;
+	XDrawRectangle (_display, _w, _gc, _wl.confirmbox.x, _wl.confirmbox.y, barw-1, barh-1);
+	XFillRectangle (_display, _w, _gc, _wl.confirmbox.x, _wl.confirmbox.y, quality*barw/MAX_QUALITY, barh);
+	// Draw good password boundaries.
+	// 56 bits is good enough against a single adversary with a GPU cracker.
+	// 80 bits is good enough for all but the most sensitive stuff
+	enum { BAD_QUALITY = 56, GOOD_QUALITY = 80 };
+	XDrawRectangle (_display, _w, _gc, _wl.confirmbox.x + BAD_QUALITY*barw/MAX_QUALITY, _wl.confirmbox.y,
+					    (GOOD_QUALITY-BAD_QUALITY)*barw/MAX_QUALITY, barh-1);
+    } else {		// Confirmation prompt and boxes
+	XDrawString (_display, _w, _gc, _wl.confirmprompt.x, _wl.confirmprompt.y, STRBLK(_confirmPrompt));
+	DrawPasswordBoxLine (_wl.confirmbox.x, _wl.confirmbox.y, _confirmBufLen);
     }
 }
 
@@ -360,12 +382,10 @@ static unsigned ComputeQuality (void)
 
 static bool OnKey (wchar_t k)
 {
-    if (k == XK_BackSpace && _passwordLen > 0)
-	_password[--_passwordLen] = 0;
-    else if (k == XK_Return) {
+    if (k == XK_Return) {
 	if (_confirmsPass++ && 0 != memcmp (_password, _confirmBuf, _passwordLen))
 	    ++_confirms;	// Ask again if does not match
-	snprintf (_confirmPrompt, sizeof(_confirmPrompt), _confirms > 1 ? "Confirm %u:" : "Confirm:", _confirmsPass);
+	snprintf (_confirmPrompt, sizeof(_confirmPrompt), _confirms > 1 ? MULTI_CONFIRM_PROMPT : SINGLE_CONFIRM_PROMPT, _confirmsPass);
 	memset (_confirmBuf, 0, sizeof(_confirmBuf));
 	_confirmBufLen = 0;
 	if (_confirmsPass > _confirms) {
@@ -375,6 +395,11 @@ static bool OnKey (wchar_t k)
     } else if (k == XK_Escape) {
 	_password[_passwordLen = 0] = 0;
 	return (true);
+    } else if (k == XK_BackSpace && _passwordLen > 0) {
+	if (_confirmsPass > 0)
+	    _confirmBuf[--_confirmBufLen] = 0;
+	else
+	    _password[--_passwordLen] = 0;
     } else if (k >= ' ' && k <= '~') {
 	if (_confirmsPass > 0) {
 	    if (_confirmBufLen < sizeof(_confirmBuf)-1) {

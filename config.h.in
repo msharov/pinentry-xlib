@@ -17,6 +17,12 @@
 
 // Using GNU-specific glibc features
 #define _GNU_SOURCE
+// Include the standard headers
+#include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
 #define DEFAULT_PASSWORD_PROMPT		"PIN:"
 #define SHOW_MESSAGE_PROMPT		"Press Enter to continue."

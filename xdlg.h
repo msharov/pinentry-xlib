@@ -23,6 +23,7 @@ typedef enum {
 //----------------------------------------------------------------------
 
 // Parameters for X window creation
+extern char* _displayName;
 extern int _argc;
 extern const char* const* _argv;
 
@@ -41,5 +42,5 @@ extern size_t _passwordLen;
 
 //----------------------------------------------------------------------
 
-bool OpenX (const char* displayName);
+bool OpenX (void);
 bool RunMainDialog (void);

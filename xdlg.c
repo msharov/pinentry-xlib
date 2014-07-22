@@ -6,12 +6,14 @@
 #include "xdlg.h"
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <signal.h>
 
 //----------------------------------------------------------------------
 // Extern interface set from main
 
 int _argc = 0;
 const char* const* _argv = NULL;
+char* _displayName = NULL;
 
 edlgtype_t _dialogType = PromptForPassword;
 char* _description = NULL;
@@ -87,11 +89,16 @@ static char _confirmBuf [PASSWORD_MAXLEN] = "";
 static size_t _confirmBufLen = 0;
 static unsigned _confirmsPass = 0;
 static bool _accepted = false;
+static bool _timedOut = false;
 
 //----------------------------------------------------------------------
 // Module internal functions
 
 static void CloseX (void);
+static int OnXlibError (Display* dpy, XErrorEvent* e);
+static int OnXlibIOError (Display* dpy);
+static void OnAlarm (int sig);
+
 static void CreatePinentryWindow (void);
 static void ClosePinentryWindow (void);
 static void LayoutWindow (void);
@@ -105,13 +112,16 @@ static bool OnKey (wchar_t k);
 //----------------------------------------------------------------------
 // X connection management
 
-bool OpenX (const char* displayName)
+bool OpenX (void)
 {
     // Open display
-    _display = XOpenDisplay (displayName);
+    _display = XOpenDisplay (_displayName);
     if (!_display)
 	return (false);
     atexit (CloseX);
+    signal (SIGALRM, OnAlarm);
+    XSetErrorHandler (OnXlibError);
+    XSetIOErrorHandler (OnXlibIOError);
     _screen = DefaultScreen (_display);
     // Allocate colors
     const char* fgname = XGetDefault (_display, PINENTRY_NAME, "foreground");
@@ -155,12 +165,49 @@ bool OpenX (const char* displayName)
 
 static void CloseX (void)
 {
-    ClosePinentryWindow();
-    if (_font)
-	XFreeFont (_display, _font);
-    XCloseDisplay (_display);
-    _font = NULL;
+    if (_display) {
+	ClosePinentryWindow();
+	if (_font) {
+	    XFreeFont (_display, _font);
+	    _font = NULL;
+	}
+	XCloseDisplay (_display);
+	_display = NULL;
+    }
+    if (_displayName) {
+	free (_displayName);
+	_displayName = NULL;
+    }
+    if (_description) {
+	free (_description);
+	_description = NULL;
+    }
+}
+
+static void OnAlarm (int sig UNUSED)
+{
+    _timedOut = true;
+    // RunMainDialog is stuck in XNextEvent, so need to get the server to send some kind of message
+    XResizeWindow (_display, _w, 1, 1);	// Synchronous calls will flush the fd, so need an async call
+    XFlush (_display);
+}
+
+static int OnXlibError (Display* dpy, XErrorEvent* e)
+{
+    char errorbuf [512];
+    XGetErrorText (dpy, e->error_code, errorbuf, sizeof(errorbuf));
+    printf ("ERR X request %u.%u error: %s\n", e->request_code, e->minor_code, errorbuf);
+    _timedOut = true;
+    return (0);
+}
+
+static int OnXlibIOError (Display* dpy UNUSED)
+{
+    _w = None;
     _display = NULL;
+    puts ("ERR connection to X server terminated");
+    exit (EXIT_FAILURE);
+    return (0);
 }
 
 //----------------------------------------------------------------------
@@ -169,8 +216,9 @@ static void CloseX (void)
 bool RunMainDialog (void)
 {
     CreatePinentryWindow();
-    for (XEvent e;;) {
-	XNextEvent (_display, &e);
+    for (XEvent e; !_timedOut;) {
+	if (0 > XNextEvent (_display, &e))
+	    break;
 	if (e.type == ConfigureNotify && (_wwidth != (unsigned) e.xconfigure.width || _wheight != (unsigned) e.xconfigure.height)) {
 	    _wwidth = e.xconfigure.width;
 	    _wheight = e.xconfigure.height;
@@ -178,12 +226,17 @@ bool RunMainDialog (void)
 	} else if (e.type == Expose) {
 	    while (XCheckTypedEvent (_display, Expose, &e)) {}
 	    DrawWindow();
+	} else if (e.type == DestroyNotify) {
+	    _w = None;
+	    break;
 	} else if (e.type == KeyPress) {
 	    KeySym ksym = 0;
 	    XLookupString (&e.xkey, NULL, 0, &ksym, NULL);
 	    if (OnKey (ksym))
 		break;
-	} else if (e.type == ButtonPress || (e.type == ClientMessage && (Atom) e.xclient.data.l[0] == _atoms[a_WM_DELETE_WINDOW]))
+	} else if (e.type == ButtonPress
+		|| (e.type == ClientMessage
+		    && (Atom) e.xclient.data.l[0] == _atoms[a_WM_DELETE_WINDOW]))
 	    break;
     }
     ClosePinentryWindow();
@@ -192,7 +245,7 @@ bool RunMainDialog (void)
 
 static void CreatePinentryWindow (void)
 {
-    _w = XCreateSimpleWindow (_display, _parentWindow ? _parentWindow :  RootWindow(_display, _screen), 0, 0, 1, 1, 0, _fg, _bg);
+    _w = XCreateSimpleWindow (_display, RootWindow(_display, _screen), 0, 0, 1, 1, 0, _fg, _bg);
 
     XSelectInput (_display, _w, ExposureMask| KeyPressMask| ButtonPressMask| StructureNotifyMask);
 
@@ -232,7 +285,9 @@ static void CreatePinentryWindow (void)
     // WM_PROTOCOLS (to use the close button)
     XChangeProperty (_display, _w, _atoms[a_WM_PROTOCOLS], _atoms[a_ATOM], 32, PropModeReplace, (const unsigned char*) &_atoms[a_WM_DELETE_WINDOW], 1);
     // That this is a system-wide modal dialog
-    XSetTransientForHint (_display, _w, RootWindow(_display, _screen));
+    if (!_parentWindow)	// Parent window is only used for the transient for hint. The dialog itself is always a toplevel window, parented to root.
+	_parentWindow = RootWindow (_display, _screen);
+    XSetTransientForHint (_display, _w, _parentWindow);
     // _NET_WM_WINDOW_TYPE set to DIALOG
     XChangeProperty (_display, _w, _atoms[a_NET_WM_WINDOW_TYPE], _atoms[a_ATOM], 32, PropModeReplace, (const unsigned char*) &_atoms[a_NET_WM_WINDOW_TYPE_DIALOG], 1);
     // _NET_WM_STATE set to NORMAL size, MODAL, ABOVE, and DEMANDS_ATTENTION
@@ -246,14 +301,21 @@ static void ClosePinentryWindow (void)
 {
     if (_w == None)
 	return;
-    if (_wfontinfo)
+    if (_wfontinfo) {
 	XFreeFontInfo (NULL, _wfontinfo, 0);
-    _wfontinfo = NULL;
-    XFreeGC (_display, _gc);
-    _gc = None;
-    XUnmapWindow (_display, _w);
-    XDestroyWindow (_display, _w);
-    _w = None;
+	_wfontinfo = NULL;
+    }
+    if (_gc != None) {
+	XFreeGC (_display, _gc);
+	_gc = None;
+    }
+    if (_w != None) {
+	XUnmapWindow (_display, _w);
+	XDestroyWindow (_display, _w);
+	_w = None;
+    }
+    alarm (0);	// Cancel entry timeout
+    _timedOut = false;
 }
 
 static void LayoutWindow (void)
@@ -314,6 +376,9 @@ static void LayoutWindow (void)
 
 static void DrawWindow (void)
 {
+    // Drawing the window indicates activity, so reset the timeout
+    alarm (_entryTimeout);
+    // Start with a clear window
     XClearWindow (_display, _w);
     // Window border
     XDrawRectangle (_display, _w, _gc, 1, 1, _wwidth-3, _wheight-3);

@@ -5,14 +5,16 @@
 
 #include "xdlg.h"
 #include <getopt.h>
+#include <signal.h>
 
 //----------------------------------------------------------------------
 
-static const char* _displayName = NULL;
 static bool _askpassMode = false;	// If using the ssh-askpass interface
 
 //----------------------------------------------------------------------
 
+static void OnSignal (int sig);
+static void InstallCleanupHandler (void);
 static void ParseCommandLine (int argc, char* argv[]);
 static void PrintHelp (void);
 
@@ -20,9 +22,10 @@ static void PrintHelp (void);
 
 int main (int argc, char* argv[])
 {
+    InstallCleanupHandler();
     ParseCommandLine (argc, argv);
-    if (!OpenX (_displayName)) {
-	printf ("ERR Unable to open X display\n");
+    if (!OpenX()) {
+	printf ("ERR Unable to open X display %s\n", _displayName);
 	return (EXIT_FAILURE);
     }
     bool accepted = RunMainDialog();
@@ -41,6 +44,24 @@ int main (int argc, char* argv[])
     else if (_dialogType == ShowMessage)
 	puts ("OK");
     return (EXIT_SUCCESS);
+}
+
+static void OnSignal (int sig)
+{
+    printf ("ERR %s\n", strsignal(sig));
+    fflush (stdout);
+    abort();
+}
+
+static void InstallCleanupHandler (void)
+{
+    #define S(n) (1<<(n))
+    const unsigned c_Sigmask = S(SIGINT)|S(SIGQUIT)|S(SIGTERM)|S(SIGPWR)|S(SIGILL)
+				|S(SIGBUS)|S(SIGFPE)|S(SIGSYS)|S(SIGSEGV)|S(SIGXCPU);
+    #undef S
+    for (unsigned i = 0; i < NSIG; ++i)
+	if ((1<<i) & c_Sigmask)
+	    signal (i, OnSignal);
 }
 
 static void ParseCommandLine (int argc, char* argv[])

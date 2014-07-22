@@ -17,6 +17,8 @@
 
 // Using GNU-specific glibc features
 #define _GNU_SOURCE
+#define UNUSED __attribute__((unused))
+
 // Include the standard headers
 #include <limits.h>
 #include <stdio.h>
@@ -24,8 +26,8 @@
 #include <string.h>
 #include <unistd.h>
 
-#define DEFAULT_DESCRIPTION		"Please enter your authentication passphrase"
-#define DEFAULT_PASSWORD_PROMPT		"Passphrase:"
+#define DEFAULT_DESCRIPTION		"  Enter your passphrase"
+#define DEFAULT_PASSWORD_PROMPT		""
 #define SHOW_MESSAGE_PROMPT		"Press Enter to continue."
 #define ASK_YES_NO_QUESTION_PROMPT	"Enter to continue, Esc to cancel."
 #define QUALITY_PROMPT			"Quality:"

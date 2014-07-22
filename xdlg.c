@@ -94,6 +94,7 @@ static bool _timedOut = false;
 //----------------------------------------------------------------------
 // Module internal functions
 
+static bool OpenX (void);
 static void CloseX (void);
 static int OnXlibError (Display* dpy, XErrorEvent* e);
 static int OnXlibIOError (Display* dpy);
@@ -112,7 +113,7 @@ static bool OnKey (wchar_t k);
 //----------------------------------------------------------------------
 // X connection management
 
-bool OpenX (void)
+static bool OpenX (void)
 {
     // Open display
     _display = XOpenDisplay (_displayName);
@@ -167,21 +168,18 @@ static void CloseX (void)
 {
     if (_display) {
 	ClosePinentryWindow();
-	if (_font) {
+	if (_font)
 	    XFreeFont (_display, _font);
-	    _font = NULL;
-	}
 	XCloseDisplay (_display);
-	_display = NULL;
     }
-    if (_displayName) {
+    if (_displayName)
 	free (_displayName);
-	_displayName = NULL;
-    }
-    if (_description) {
+    if (_description)
 	free (_description);
-	_description = NULL;
-    }
+    _font = NULL;
+    _display = NULL;
+    _displayName = NULL;
+    _description = NULL;
 }
 
 static void OnAlarm (int sig UNUSED)
@@ -215,10 +213,16 @@ static int OnXlibIOError (Display* dpy UNUSED)
 
 bool RunMainDialog (void)
 {
+    if (!_display && !OpenX()) {
+	printf ("ERR Unable to open X display %s\n", _displayName);
+	return (false);
+    }
     CreatePinentryWindow();
     for (XEvent e; !_timedOut;) {
 	if (0 > XNextEvent (_display, &e))
 	    break;
+	if (e.xany.window != _w)
+	    continue;
 	if (e.type == ConfigureNotify && (_wwidth != (unsigned) e.xconfigure.width || _wheight != (unsigned) e.xconfigure.height)) {
 	    _wwidth = e.xconfigure.width;
 	    _wheight = e.xconfigure.height;
@@ -240,7 +244,9 @@ bool RunMainDialog (void)
 	    break;
     }
     ClosePinentryWindow();
-    return (_accepted);
+    const bool r = _accepted;
+    _accepted = false;	// Reset for next time
+    return (r);
 }
 
 static void CreatePinentryWindow (void)
@@ -299,19 +305,16 @@ static void CreatePinentryWindow (void)
 
 static void ClosePinentryWindow (void)
 {
-    if (_w == None)
-	return;
-    if (_wfontinfo) {
+    if (_wfontinfo)
 	XFreeFontInfo (NULL, _wfontinfo, 0);
-	_wfontinfo = NULL;
-    }
-    if (_gc != None) {
-	XFreeGC (_display, _gc);
+    _wfontinfo = NULL;
+    if (_display) {
+	if (_gc != None)
+	    XFreeGC (_display, _gc);
+	if (_w != None)
+	    XDestroyWindow (_display, _w);
+	XFlush (_display);
 	_gc = None;
-    }
-    if (_w != None) {
-	XUnmapWindow (_display, _w);
-	XDestroyWindow (_display, _w);
 	_w = None;
     }
     alarm (0);	// Cancel entry timeout

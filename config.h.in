@@ -34,3 +34,4 @@
 #define SINGLE_CONFIRM_PROMPT		"Confirm:"
 #define MULTI_CONFIRM_PROMPT		"Confirm %u:"
 #define DEFAULT_FONT_NAME		"10x20"
+enum { ASSUAN_LINE_LIMIT = 1022 };

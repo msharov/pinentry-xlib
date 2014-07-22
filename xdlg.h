@@ -42,5 +42,4 @@ extern size_t _passwordLen;
 
 //----------------------------------------------------------------------
 
-bool OpenX (void);
 bool RunMainDialog (void);

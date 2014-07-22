@@ -17,6 +17,7 @@ static void OnSignal (int sig);
 static void InstallCleanupHandler (void);
 static void ParseCommandLine (int argc, char* argv[]);
 static void PrintHelp (void);
+static void RunAssuanProtocol (void);
 
 //----------------------------------------------------------------------
 
@@ -24,25 +25,10 @@ int main (int argc, char* argv[])
 {
     InstallCleanupHandler();
     ParseCommandLine (argc, argv);
-    if (!OpenX()) {
-	printf ("ERR Unable to open X display %s\n", _displayName);
-	return (EXIT_FAILURE);
-    }
-    bool accepted = RunMainDialog();
-    if (_dialogType == PromptForPassword) {
-	if (_askpassMode) {
-	    if (accepted)
-		puts (_password);
-	} else {
-	    if (accepted)
-		printf ("D %s\nOK\n", _password);
-	    else
-		puts ("ERR 83886179 cancelled");
-	}
-    } else if (_dialogType == AskYesNoQuestion)
-	puts (accepted ? "OK" : "ERR 83886179 cancelled");
-    else if (_dialogType == ShowMessage)
-	puts ("OK");
+    if (!_askpassMode)
+	RunAssuanProtocol();
+    else if (RunMainDialog())
+	puts (_password);
     return (EXIT_SUCCESS);
 }
 
@@ -106,7 +92,7 @@ static void ParseCommandLine (int argc, char* argv[])
 
 static void PrintHelp (void)
 {
-    // These are the same as gpg's pinentry plus the options for ssh-askpass
+    // These are the same as gpg's pinentry plus the description option as for ssh-askpass
     puts ("Usage: pinentry-xlib [OPTIONS] [DESCRIPTION]\n"
 	"Ask securely for a secret and print it to stdout.\n\n"
 	"      --display DISPLAY Set the X display\n"
@@ -120,4 +106,134 @@ static void PrintHelp (void)
 	"  -d, --debug           Turn on debugging output\n"
 	"  -h, --help            Display this help and exit\n"
 	"      --version         Output version information and exit");
+}
+
+enum ECmd {
+    cmd_BYE,
+    cmd_CONFIRM,
+    cmd_GETINFO,
+    cmd_GETPIN,
+    cmd_MESSAGE,
+    cmd_OPTION,
+    cmd_SETDESC,
+    cmd_SETPROMPT,
+    cmd_SETQUALITYBAR,
+    cmd_SETTIMEOUT,
+    cmd_SETTITLE,
+    cmd_SETCANCEL,
+    cmd_SETERROR,
+    cmd_SETNOTOK,
+    cmd_SETOK,
+    cmd_SETQUALITYBAR_TT,
+    cmd_NCMDS
+};
+
+static enum ECmd MatchCommand (const char* l)
+{
+    static const char* c_Cmds [cmd_NCMDS] = {	// Parallel to ECmd
+	"BYE",
+	"CONFIRM",
+	"GETINFO",
+	"GETPIN",
+	"MESSAGE",
+	"OPTION",
+	"SETDESC",
+	"SETPROMPT",
+	"SETQUALITYBAR",
+	"SETTIMEOUT",
+	"SETTITLE",
+	"SETCANCEL",
+	"SETERROR",
+	"SETNOTOK",
+	"SETOK",
+	"SETQUALITYBAR_TT"
+    };
+    unsigned i;
+    for (i = 0; i < cmd_NCMDS; ++i)
+	if (0 == strncasecmp (c_Cmds[i], l, strlen(c_Cmds[i])))
+	    break;
+    return (i);
+}
+
+static void RunAssuanProtocol (void)
+{
+    puts ("OK Your orders please");
+    char line [ASSUAN_LINE_LIMIT+2];
+    while (fgets (line, sizeof(line), stdin)) {
+	size_t linelen = strlen(line);
+	if (line[linelen-1] != '\n') {
+	    puts ("ERR line too long");
+	    break;
+	}
+	line[linelen-1] = 0;
+	const char* arg = strchr (line, ' ');
+	arg += !arg;
+
+	enum ECmd cmd = MatchCommand (line);
+	if (cmd == cmd_BYE) {
+	    puts ("OK closing connection");
+	    break;
+	} else if (cmd == cmd_CONFIRM) {
+	    _dialogType = AskYesNoQuestion;
+	    bool accepted = RunMainDialog();
+	    puts (accepted ? "OK" : "ERR 83886179 cancelled");
+	} else if (cmd == cmd_GETPIN) {
+	    _dialogType = PromptForPassword;
+	    bool accepted = RunMainDialog();
+	    if (accepted)
+		printf ("D %s\nOK\n", _password);
+	    else
+		puts ("ERR 83886179 cancelled");
+	    memset (_password, _passwordLen = 0, sizeof(_password));
+	} else if (cmd == cmd_GETINFO && arg) {
+	    if (strcasecmp (arg, "version"))
+		puts ("D " PINENTRY_VERSTRING "\nOK");
+	    else if (strcasecmp (arg, "pid"))
+		printf ("D %u\nOK\n", getpid());
+	    else
+		puts ("ERR 83886355 unknown command");
+	} else if (cmd == cmd_MESSAGE) {
+	    _dialogType = ShowMessage;
+	    RunMainDialog();
+	    puts ("OK");
+	} else if (cmd == cmd_OPTION && arg) {
+	    const char* value = strchr (arg, ' ');
+	    value += !value;
+	    if (!strcasecmp (arg, "no-grab"))
+		_nograb = true;
+	    else if (!strcasecmp (arg, "grab"))
+		_nograb = false;
+	    else if (!strcasecmp (arg, "parent-wid") && value)
+		_parentWindow = atoi (value);
+	    else if (!strcasecmp (arg, "display") && value) {
+		char* p = strdup (value);
+		if (p) {
+		    if (_displayName)
+			free (_displayName);
+		    _displayName = p;
+		}
+	    }
+	    puts ("OK");
+	} else if (cmd == cmd_SETDESC && arg) {
+	    char* p = strdup (arg);
+	    if (p) {
+		if (_description)
+		    free (_description);
+		_description = p;
+	    }
+	    puts ("OK");
+	} else if (cmd == cmd_SETPROMPT && arg) {
+	    snprintf (_prompt, sizeof(_prompt), "%s:", arg);
+	    puts ("OK");
+	} else if (cmd == cmd_SETQUALITYBAR) {
+	    _confirms = true;
+	    puts ("OK");
+	} else if (cmd == cmd_SETTIMEOUT && arg) {
+	    _entryTimeout = atoi(arg);
+	    puts ("OK");
+	} else if (cmd < cmd_NCMDS)	// SETTITLE and later commands are not supported in this implementation and are silently ignored
+	    puts ("OK");
+	else
+	    puts ("ERR 83886355 unknown command");
+    }
 }

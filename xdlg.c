@@ -32,6 +32,7 @@ size_t _passwordLen = 0;
 // X server information
 static Display* _display = NULL;
 static int _screen = 0;
+static bool _isGrabbed = false;
 
 enum {
     a_ATOM,
@@ -223,13 +224,23 @@ bool RunMainDialog (void)
 	    break;
 	if (e.xany.window != _w)
 	    continue;
-	if (e.type == ConfigureNotify && (_wwidth != (unsigned) e.xconfigure.width || _wheight != (unsigned) e.xconfigure.height)) {
-	    _wwidth = e.xconfigure.width;
-	    _wheight = e.xconfigure.height;
-	    DrawWindow();
+	if (e.type == ConfigureNotify) {
+	    if (_wwidth != (unsigned) e.xconfigure.width || _wheight != (unsigned) e.xconfigure.height) {
+		_wwidth = e.xconfigure.width;
+		_wheight = e.xconfigure.height;
+		DrawWindow();
+	    }
 	} else if (e.type == Expose) {
 	    while (XCheckTypedEvent (_display, Expose, &e)) {}
 	    DrawWindow();
+	    if (_dialogType == PromptForPassword && !_nograb && !_isGrabbed) {
+		if (GrabSuccess != XGrabKeyboard (_display, _w, true, GrabModeAsync, GrabModeAsync, CurrentTime)) {
+		    puts ("ERR failed to grab the keyboard");
+		    break;
+		}
+		_isGrabbed = true;
+		XGrabServer (_display);
+	    }
 	} else if (e.type == DestroyNotify) {
 	    _w = None;
 	    break;
@@ -309,6 +320,9 @@ static void ClosePinentryWindow (void)
 	XFreeFontInfo (NULL, _wfontinfo, 0);
     _wfontinfo = NULL;
     if (_display) {
+	XUngrabServer (_display);
+	XUngrabKeyboard (_display, CurrentTime);
+	_isGrabbed = false;
 	if (_gc != None)
 	    XFreeGC (_display, _gc);
 	if (_w != None)

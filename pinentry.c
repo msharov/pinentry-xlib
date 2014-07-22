@@ -167,7 +167,7 @@ static void RunAssuanProtocol (void)
 	}
 	line[linelen-1] = 0;
 	const char* arg = strchr (line, ' ');
-	arg += !arg;
+	arg += !!arg;
 
 	enum ECmd cmd = MatchCommand (line);
 	if (cmd == cmd_BYE) {
@@ -197,8 +197,8 @@ static void RunAssuanProtocol (void)
 	    RunMainDialog();
 	    puts ("OK");
 	} else if (cmd == cmd_OPTION && arg) {
-	    const char* value = strchr (arg, ' ');
-	    value += !value;
+	    const char* value = strchr (arg, '=');
+	    value += !!value;
 	    if (!strcasecmp (arg, "no-grab"))
 		_nograb = true;
 	    else if (!strcasecmp (arg, "grab"))
@@ -227,6 +227,8 @@ static void RunAssuanProtocol (void)
 	    puts ("OK");
 	} else if (cmd == cmd_SETQUALITYBAR) {
 	    _confirms = true;
+	    if (!_prompt[0])
+		strcpy (_prompt, "Passphrase:");
 	    puts ("OK");
 	} else if (cmd == cmd_SETTIMEOUT && arg) {
 	    _entryTimeout = atoi(arg);

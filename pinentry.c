@@ -163,7 +163,7 @@ static void RunAssuanProtocol (void)
 {
     puts ("OK Your orders please");
     char line [ASSUAN_LINE_LIMIT+2];
-    while (fgets (line, sizeof(line), stdin)) {
+    while (!fflush(stdout) && fgets (line, sizeof(line), stdin)) {
 	size_t linelen = strlen(line);
 	if (line[linelen-1] != '\n') {
 	    puts ("ERR line too long");

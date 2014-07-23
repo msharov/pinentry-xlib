@@ -6,6 +6,7 @@
 #include "xdlg.h"
 #include <getopt.h>
 #include <signal.h>
+#include <ctype.h>
 
 //----------------------------------------------------------------------
 
@@ -18,6 +19,9 @@ static void InstallCleanupHandler (void);
 static void ParseCommandLine (int argc, char* argv[]);
 static void PrintHelp (void);
 static void RunAssuanProtocol (void);
+static void PercentEscape (char* s, size_t smaxlen);
+static void PercentUnescape (char* s, size_t smaxlen);
+static void UnderscoreUnescape (char* s, size_t smaxlen);
 
 //----------------------------------------------------------------------
 
@@ -180,9 +184,10 @@ static void RunAssuanProtocol (void)
 	} else if (cmd == cmd_GETPIN) {
 	    _dialogType = PromptForPassword;
 	    bool accepted = RunMainDialog();
-	    if (accepted)
+	    if (accepted) {
+		PercentEscape (_password, sizeof(_password)-2);
 		printf ("D %s\nOK\n", _password);
-	    else
+	    } else
 		puts ("ERR 83886179 cancelled");
 	    memset (_password, _passwordLen = 0, sizeof(_password));
 	} else if (cmd == cmd_GETINFO && arg) {
@@ -215,6 +220,7 @@ static void RunAssuanProtocol (void)
 	    }
 	    puts ("OK");
 	} else if (cmd == cmd_SETDESC && arg) {
+	    PercentUnescape (line, sizeof(line));
 	    char* p = strdup (arg);
 	    if (p) {
 		if (_description)
@@ -223,6 +229,8 @@ static void RunAssuanProtocol (void)
 	    }
 	    puts ("OK");
 	} else if (cmd == cmd_SETPROMPT && arg) {
+	    PercentUnescape (line, sizeof(line));
+	    UnderscoreUnescape (line, sizeof(line));
 	    snprintf (_prompt, sizeof(_prompt), "%s:", arg);
 	    puts ("OK");
 	} else if (cmd == cmd_SETQUALITYBAR) {
@@ -237,5 +245,51 @@ static void RunAssuanProtocol (void)
 	    puts ("OK");
 	else
 	    puts ("ERR 83886355 unknown command");
+    }
+}
+
+static const char hexchars[] = "0123456789ABCDEF";
+
+static void PercentEscape (char* s, size_t smaxlen)
+{
+    for (size_t i = 0; i < smaxlen; ++i) {
+	const unsigned char c = s[i];
+	if (!c)
+	    break;
+	if (c < ' ' || c > '~' || c == '%') {
+	    memmove (s+2, s, smaxlen-2);
+	    s[i+0] = '%';
+	    s[i+1] = hexchars[c>>4];
+	    s[i+2] = hexchars[c&0xf];
+	    i += 2;
+	}
+    }
+}
+
+static void PercentUnescape (char* s, size_t smaxlen)
+{
+    char* d = s;
+    for (size_t i = 0; i < smaxlen; ++i) {
+	char *hnib, *lnib, c = s[i];
+	if (c == '%' && (hnib = strchr(hexchars,toupper(s[i+1]))) && (lnib = strchr(hexchars,toupper(s[i+2])))) {
+	    c = ((hnib-hexchars)<<4)|(lnib-hexchars);
+	    i += 2;
+	}
+	*d++ = c;
+	if (!c)
+	    break;
+    }
+}
+
+static void UnderscoreUnescape (char* s, size_t smaxlen)
+{
+    char* d = s;
+    for (size_t i = 0; i < smaxlen; ++i) {
+	char c = s[i];
+	if (c == '_')
+	    c = s[++i];
+	*d++ = c;
+	if (!c)
+	    break;
     }
 }

@@ -357,8 +357,8 @@ static void LayoutWindow (void)
 	_wl.descsz.y += _wl.fl.y;
     }
     // Under that is the prompt and the password mask box line
-    _wl.promptw = XTextWidth (_wfontinfo, STRBLK(_prompt));
     _wl.prompt.x = _wl.desc.x;
+    _wl.promptw = XTextWidth (_wfontinfo, STRBLK(_prompt));
     _wl.box.x = _wl.prompt.x+_wl.promptw+_wl.f.x;
     _wl.box.y = _wl.desc.y+_wl.descsz.y+_wl.fl.y;
     _wl.prompt.y = _wl.box.y+_wl.f.y;
@@ -379,6 +379,14 @@ static void LayoutWindow (void)
     }
     // Calculate window size
     unsigned boxlinew = _wl.box.x - _wl.prompt.x + MAX_BOXES*_wl.fl.x;
+    int boxlinediff = _wl.descsz.x - (boxlinew + _wl.promptw);
+    if (boxlinediff > 0) {
+	unsigned centeroff = (unsigned)boxlinediff/2;
+	_wl.prompt.x += centeroff;
+	_wl.box.x += centeroff;
+	_wl.confirmprompt.x += centeroff;
+	_wl.confirmbox.x += centeroff;
+    }
     // Width is the max of description width and the box line
     _wwidth = _wl.descsz.x;
     if (_wwidth < boxlinew)

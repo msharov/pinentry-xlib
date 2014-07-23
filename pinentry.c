@@ -185,7 +185,7 @@ static void RunAssuanProtocol (void)
 	    _dialogType = PromptForPassword;
 	    bool accepted = RunMainDialog();
 	    if (accepted) {
-		PercentEscape (_password, sizeof(_password)-2);
+		PercentEscape (_password, sizeof(_password)-3);
 		printf ("D %s\nOK\n", _password);
 	    } else
 		puts ("ERR 83886179 cancelled");
@@ -264,6 +264,7 @@ static void PercentEscape (char* s, size_t smaxlen)
 	    i += 2;
 	}
     }
+    s[smaxlen] = 0;
 }
 
 static void PercentUnescape (char* s, size_t smaxlen)

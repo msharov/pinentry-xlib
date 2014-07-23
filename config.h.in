@@ -1,4 +1,4 @@
-// This file is part of the pinentry-x11 project
+// This file is part of the pinentry-xlib project
 //
 // Copyright (c) 2014 by Mike Sharov <msharov@users.sourceforge.net>
 // This file is free software, distributed under the MIT License.
@@ -7,13 +7,13 @@
 #pragma once
 
 // Define to the one symbol short name of this package.
-#define @PKG_UNAME@_NAME		"@PKG_NAME@"
+#define PINENTRY_NAME			"@PKG_NAME@"
 // Define to the version of this package.
-#define @PKG_UNAME@_VERSION	@PKG_VERSION@
+#define PINENTRY_VERSION		@PKG_VERSION@
 // Define to the version string of this package.
-#define @PKG_UNAME@_VERSTRING	"@PKG_VERSTR@"
+#define PINENTRY_VERSTRING		"@PKG_VERSTR@"
 // Define to the address where bug reports for this package should be sent.
-#define @PKG_UNAME@_BUGREPORT	"@PKG_BUGREPORT@"
+#define PINENTRY_BUGREPORT		"@PKG_BUGREPORT@"
 
 // Using GNU-specific glibc features
 #define _GNU_SOURCE

@@ -1,4 +1,4 @@
-// This file is part of the pinentry-x11 project
+// This file is part of the pinentry-xlib project
 //
 // Copyright (c) 2014 by Mike Sharov <msharov@users.sourceforge.net>
 // This file is free software, distributed under the MIT License.
@@ -71,7 +71,7 @@ static void ParseCommandLine (int argc, char* argv[])
     };
     for (int oi = 0, c; 0 <= (c = getopt_long (argc, argv, "vhg", c_LongOpts, &oi));) {
 	if (c == 'v') {
-	    puts ("pinentry-xlib " PINENTRY_VERSTRING);
+	    puts (PINENTRY_NAME " " PINENTRY_VERSTRING);
 	    exit (EXIT_SUCCESS);
 	} else if (c == 'h' || c == '?') {
 	    PrintHelp();
@@ -97,7 +97,7 @@ static void ParseCommandLine (int argc, char* argv[])
 static void PrintHelp (void)
 {
     // These are the same as gpg's pinentry plus the description option as for ssh-askpass
-    puts ("Usage: pinentry-xlib [OPTIONS] [DESCRIPTION]\n"
+    puts ("Usage: " PINENTRY_NAME " [OPTIONS] [DESCRIPTION]\n"
 	"Ask securely for a secret and print it to stdout.\n\n"
 	"      --display DISPLAY Set the X display\n"
 	"      --ttyname PATH    Set the tty terminal node name\n"
@@ -257,7 +257,7 @@ static void PercentEscape (char* s, size_t smaxlen)
 	if (!c)
 	    break;
 	if (c < ' ' || c > '~' || c == '%') {
-	    memmove (s+2, s, smaxlen-2);
+	    memmove (&s[i+2], &s[i], smaxlen-i);
 	    s[i+0] = '%';
 	    s[i+1] = hexchars[c>>4];
 	    s[i+2] = hexchars[c&0xf];

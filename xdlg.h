@@ -1,4 +1,4 @@
-// This file is part of the pinentry-x11 project
+// This file is part of the pinentry-xlib project
 //
 // Copyright (c) 2014 by Mike Sharov <msharov@users.sourceforge.net>
 // This file is free software, distributed under the MIT License.

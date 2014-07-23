@@ -3,7 +3,7 @@
 # Project Configuration						     #
 ######################################################################
 
-PKG_NAME="pinentry"
+PKG_NAME="pinentry-xlib"
 PKG_VERSTR="v0.0"
 
 MNT_NAME="Mike Sharov"
@@ -43,7 +43,7 @@ s/@PKG_VERSION@/"0x$PKG_MAJOR${PKG_MINOR}"/g
 s/@PKG_VERSTR@/$PKG_VERSTR/g
 s/@PKG_TARNAME@/$PKG_NAME/g
 s/@PKG_STRING@/$PKG_STRING/g
-s/@PKG_UNAME@/`echo $PKG_NAME|tr a-z A-Z`/g
+s/@PKG_UNAME@/`echo $PKG_NAME|tr a-z- A-Z_`/g
 s/@PKG_BUGREPORT@/$PKG_BUGREPORT/g
 s/@PKG_MAJOR@/$PKG_MAJOR/g
 s/@PKG_MINOR@/$PKG_MINOR/g"

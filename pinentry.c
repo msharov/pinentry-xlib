@@ -191,9 +191,9 @@ static void RunAssuanProtocol (void)
 		puts ("ERR 83886179 cancelled");
 	    memset (_password, _passwordLen = 0, sizeof(_password));
 	} else if (cmd == cmd_GETINFO && arg) {
-	    if (strcasecmp (arg, "version"))
+	    if (!strcasecmp (arg, "version"))
 		puts ("D " PINENTRY_VERSTRING "\nOK");
-	    else if (strcasecmp (arg, "pid"))
+	    else if (!strcasecmp (arg, "pid"))
 		printf ("D %u\nOK\n", getpid());
 	    else
 		puts ("ERR 83886355 unknown command");

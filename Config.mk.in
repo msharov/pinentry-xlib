@@ -25,7 +25,7 @@ MANDIR		:= @mandir@
 WARNOPTS	:= -Wall -Wextra -Wredundant-decls -Wshadow @SYSWARNS@
 CFLAGS		:= ${WARNOPTS} -march=native -std=c99
 LDFLAGS		:=
-LIBS		:= @libX11@
+LIBS		:= @libX11@ @libXext@
 ifdef DEBUG
     CFLAGS	+= -O0 -g
 else

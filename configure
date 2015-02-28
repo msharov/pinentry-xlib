@@ -21,10 +21,10 @@ seds=[s/^#\(DEBUG\)/\1/]
 }';
 
 # Header files
-HEADERS="X11/Xlib.h"
+HEADERS="X11/Xlib.h X11/extensions/Xdbe.h"
 
 # Libraries
-LIBS="X11"
+LIBS="X11 Xext"
 
 # First pair is used if nothing matches
 PROGS="CC=gcc INSTALL=install"

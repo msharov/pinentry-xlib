@@ -4,9 +4,15 @@
 // This file is free software, distributed under the MIT License.
 
 #include "xdlg.h"
+#if !HAVE_X11_XLIB_H
+    #error "X11 development headers are required to compile pinentry"
+#endif
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <signal.h>
+#if HAVE_X11_EXTENSIONS_XDBE_H
+    #include <X11/extensions/Xdbe.h>
+#endif
 
 //----------------------------------------------------------------------
 // Extern interface set from main
@@ -54,13 +60,16 @@ enum {
 static Atom _atoms [a_NAtoms] = { None };
 
 // Pinentry window
-static Window _w = 0;
+static Window _w = None;
 static GC _gc = None;
 static XFontStruct* _font = NULL;
 static XFontStruct* _wfontinfo = NULL;
 static unsigned long _fg = 0, _bg = 0;
 static unsigned _wwidth = 0;
 static unsigned _wheight = 0;
+#if HAVE_X11_EXTENSIONS_XDBE_H
+    static XdbeBackBuffer _d = None;
+#endif
 
 typedef struct {
     unsigned x, y;
@@ -310,6 +319,13 @@ static void CreatePinentryWindow (void)
     // _NET_WM_STATE set to NORMAL size, MODAL, ABOVE, and DEMANDS_ATTENTION
     XChangeProperty (_display, _w, _atoms[a_NET_WM_STATE], _atoms[a_ATOM], 32, PropModeReplace, (const unsigned char*) &_atoms[a_NET_WM_STATE_NORMAL], 4);
 
+    // Check if DOUBLE-BUFFER extension is available, and if it is, create a backbuffer
+    #if HAVE_X11_EXTENSIONS_XDBE_H
+	int dbeMajor, dbeMinor;
+	if (XdbeQueryExtension (_display, &dbeMajor, &dbeMinor) && dbeMajor >= DBE_MAJOR_VERSION)
+	    _d = XdbeAllocateBackBufferName (_display, _w, XdbeBackground);
+    #endif
+
     // When all of the above is done, map the window
     XMapRaised (_display, _w);
 }
@@ -403,6 +419,13 @@ static void DrawWindow (void)
 {
     // Drawing the window indicates activity, so reset the timeout
     alarm (_entryTimeout);
+    #if HAVE_X11_EXTENSIONS_XDBE_H
+	// If a backbuffer is available, then activate it. Will restore _w value at the end of this function.
+	Window wfront = _w;
+	if (_d != None)
+	    _w = _d;
+	else	// Fallthrough to XClearWindow. If using the backbuffer, XdbeBackground clears.
+    #endif
     // Start with a clear window
     XClearWindow (_display, _w);
     // Window border
@@ -416,37 +439,42 @@ static void DrawWindow (void)
     }
 
     // If just showing a message, the prompt line has accept instructions
-    if (_dialogType == ShowMessage) {
+    if (_dialogType == ShowMessage)
 	XDrawString (_display, _w, _gc, _wl.prompt.x, _wl.prompt.y, STRBLK(SHOW_MESSAGE_PROMPT));
-	return;
-    } else if (_dialogType == AskYesNoQuestion) {
+    else if (_dialogType == AskYesNoQuestion)
 	XDrawString (_display, _w, _gc, _wl.prompt.x, _wl.prompt.y, STRBLK(ASK_YES_NO_QUESTION_PROMPT));
-	return;
-    }
+    else {
+	// Prompt
+	XDrawString (_display, _w, _gc, _wl.prompt.x, _wl.prompt.y, STRBLK(_prompt));
+	// Password box mask
+	DrawPasswordBoxLine (_wl.box.x, _wl.box.y, _passwordLen);
 
-    // Prompt
-    XDrawString (_display, _w, _gc, _wl.prompt.x, _wl.prompt.y, STRBLK(_prompt));
-    // Password box mask
-    DrawPasswordBoxLine (_wl.box.x, _wl.box.y, _passwordLen);
-
-    // Second line for new passwords
-    if (!_confirms)
-	return;
-    if (!_confirmsPass) {	// Quality bar
-	XDrawString (_display, _w, _gc, _wl.confirmprompt.x, _wl.confirmprompt.y, STRBLK(QUALITY_PROMPT));
-	const unsigned quality = ComputeQuality(), barw = (MAX_BOXES-1)*_wl.fl.x+_wl.f.x, barh = _wl.f.y;
-	XDrawRectangle (_display, _w, _gc, _wl.confirmbox.x, _wl.confirmbox.y, barw-1, barh-1);
-	XFillRectangle (_display, _w, _gc, _wl.confirmbox.x, _wl.confirmbox.y, quality*barw/MAX_QUALITY, barh);
-	// Draw good password boundaries.
-	// 56 bits is good enough against a single adversary with a GPU cracker.
-	// 80 bits is good enough for all but the most sensitive stuff
-	enum { BAD_QUALITY = 56, GOOD_QUALITY = 80 };
-	XDrawRectangle (_display, _w, _gc, _wl.confirmbox.x + BAD_QUALITY*barw/MAX_QUALITY, _wl.confirmbox.y,
-					    (GOOD_QUALITY-BAD_QUALITY)*barw/MAX_QUALITY, barh-1);
-    } else {		// Confirmation prompt and boxes
-	XDrawString (_display, _w, _gc, _wl.confirmprompt.x, _wl.confirmprompt.y, STRBLK(_confirmPrompt));
-	DrawPasswordBoxLine (_wl.confirmbox.x, _wl.confirmbox.y, _confirmBufLen);
+	// Second line for new passwords
+	if (_confirms) {
+	    if (!_confirmsPass) {	// Quality bar
+		XDrawString (_display, _w, _gc, _wl.confirmprompt.x, _wl.confirmprompt.y, STRBLK(QUALITY_PROMPT));
+		const unsigned quality = ComputeQuality(), barw = (MAX_BOXES-1)*_wl.fl.x+_wl.f.x, barh = _wl.f.y;
+		XDrawRectangle (_display, _w, _gc, _wl.confirmbox.x, _wl.confirmbox.y, barw-1, barh-1);
+		XFillRectangle (_display, _w, _gc, _wl.confirmbox.x, _wl.confirmbox.y, quality*barw/MAX_QUALITY, barh);
+		// Draw good password boundaries.
+		// 56 bits is good enough against a single adversary with a GPU cracker.
+		// 80 bits is good enough for all but the most sensitive stuff
+		enum { BAD_QUALITY = 56, GOOD_QUALITY = 80 };
+		XDrawRectangle (_display, _w, _gc, _wl.confirmbox.x + BAD_QUALITY*barw/MAX_QUALITY, _wl.confirmbox.y,
+						    (GOOD_QUALITY-BAD_QUALITY)*barw/MAX_QUALITY, barh-1);
+	    } else {		// Confirmation prompt and boxes
+		XDrawString (_display, _w, _gc, _wl.confirmprompt.x, _wl.confirmprompt.y, STRBLK(_confirmPrompt));
+		DrawPasswordBoxLine (_wl.confirmbox.x, _wl.confirmbox.y, _confirmBufLen);
+	    }
+	}
     }
+    #if HAVE_X11_EXTENSIONS_XDBE_H
+	if (_d != None) {
+	    _w = wfront;
+	    XdbeSwapInfo si = { .swap_window = _w, .swap_action = XdbeBackground };
+	    XdbeSwapBuffers (_display, &si, 1);
+	}
+    #endif
 }
 
 static void DrawPasswordBoxLine (unsigned x, unsigned y, unsigned pwlen)
@@ -486,7 +514,8 @@ static bool OnKey (wchar_t k)
     if (k == XK_Return) {
 	if (_confirmsPass++ && 0 != memcmp (_password, _confirmBuf, _passwordLen))
 	    ++_confirms;	// Ask again if does not match
-	snprintf (_confirmPrompt, sizeof(_confirmPrompt), _confirms > 1 ? MULTI_CONFIRM_PROMPT : SINGLE_CONFIRM_PROMPT, _confirmsPass);
+	const char* confirmfmt = _confirms > 1 ? MULTI_CONFIRM_PROMPT : SINGLE_CONFIRM_PROMPT;
+	snprintf (_confirmPrompt, sizeof(_confirmPrompt), confirmfmt, _confirmsPass);
 	memset (_confirmBuf, 0, sizeof(_confirmBuf));
 	_confirmBufLen = 0;
 	if (_confirmsPass > _confirms) {

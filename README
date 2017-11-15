@@ -30,33 +30,3 @@ cd /usr/bin
 rm pinentry ssh-askpass
 ln -s pinentry-xlib pinentry
 ln -s pinentry-xlib ssh-askpass
-
-If you want to make pinentry secure against keyloggers, you should also
-disable the RECORD, XTEST, and DGA extensions in xorg.conf. RECORD allows
-any application to record all keystrokes regardless of their destination.
-This has legitimate use in making screencasts, but most of the time it
-is just a security risk. XTEST exension allows an application to ignore
-server grabs. pinentry always grabs the server before processing input,
-unless explicitly disabled by the -g option or via the nograb command, and
-if XTEST and RECORD are disabled then your password can not be intercepted
-by any other application. DGA extension allows application direct access
-to video memory, which can then be accessed even when grabbed. Other than
-granting the ability to read the prompt text, a malicious application
-may detect password keystroke timings by reading the filled boxes, and
-with these timings make guesses at which keys were pressed. To disable
-these extensions, add the following section to your /etc/X11/xorg.conf:
-
-Section "Extensions"
-    Option	"RECORD"	"Disable"
-    Option	"XTEST"		"Disable"
-    Option	"XFree86-DGA"	"Disable"
-EndSection
-
-All other X-based means of stealing keystrokes or reading the screen
-require X protocol access, which is prevented by the server grab. To
-secure against non-X applications, you should ensure that raw keyboard
-devices in /dev/input are not accessible. Most distributions make them
-readable only by root and the input group, which you should not be in.
-
-So if you allow pinentry to grab the server and disable the above
-extensions, then your password can not be stolen.

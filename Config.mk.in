@@ -14,16 +14,16 @@ INSTALL		:= @INSTALL@
 
 INSTALLEXE	:= ${INSTALL} -D -p -m 755 -o root -g root -s
 INSTALLDATA	:= ${INSTALL} -D -p -m 644 -o root -g root
+RMPATH		:= rmdir -p --ignore-fail-on-non-empty
 
 ################ Destination #########################################
 
 BINDIR		:= @bindir@
-MANDIR		:= @mandir@
 
 ################ Compiler options ####################################
 
-WARNOPTS	:= -Wall -Wextra -Wredundant-decls -Wshadow @SYSWARNS@
-CFLAGS		:= ${WARNOPTS} -march=native -std=c99
+WARNOPTS	:= -Wall -Wextra -Wredundant-decls -Wshadow
+CFLAGS		:= ${WARNOPTS} -std=c99
 LDFLAGS		:=
 LIBS		:= @libX11@ @libXext@
 ifdef DEBUG
@@ -32,4 +32,5 @@ else
     CFLAGS	+= -Os -g0 -DNDEBUG=1
     LDFLAGS	+= -s
 endif
+BUILDDIR	:= @builddir@/${NAME}
 O		:= .o/

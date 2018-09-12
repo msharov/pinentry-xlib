@@ -129,6 +129,10 @@ enum ECmd {
     cmd_SETNOTOK,
     cmd_SETOK,
     cmd_SETQUALITYBAR_TT,
+    cmd_SETKEYINFO,
+    cmd_SETREPEAT,
+    cmd_SETREPEATERROR,
+    cmd_CLEARPASSPHRASE,
     cmd_NCMDS
 };
 
@@ -150,7 +154,11 @@ static enum ECmd MatchCommand (const char* l)
 	"SETERROR",
 	"SETNOTOK",
 	"SETOK",
-	"SETQUALITYBAR_TT"
+	"SETQUALITYBAR_TT",
+	"SETKEYINFO",
+	"SETREPEAT",
+	"SETREPEATERROR",
+	"CLEARPASSPHRASE"
     };
     unsigned i;
     for (i = 0; i < cmd_NCMDS; ++i)
@@ -174,77 +182,123 @@ static void RunAssuanProtocol (void)
 	arg += !!arg;
 
 	enum ECmd cmd = MatchCommand (line);
-	if (cmd == cmd_BYE) {
-	    puts ("OK closing connection");
-	    break;
-	} else if (cmd == cmd_CONFIRM) {
-	    _dialogType = AskYesNoQuestion;
-	    bool accepted = RunMainDialog();
-	    puts (accepted ? "OK" : "ERR 83886179 cancelled");
-	} else if (cmd == cmd_GETPIN) {
-	    _dialogType = PromptForPassword;
-	    bool accepted = RunMainDialog();
-	    if (accepted) {
-		PercentEscape (_password, sizeof(_password)-3);
-		printf ("D %s\nOK\n", _password);
-	    } else
-		puts ("ERR 83886179 cancelled");
-	    memset (_password, _passwordLen = 0, sizeof(_password));
-	} else if (cmd == cmd_GETINFO && arg) {
-	    if (!strcasecmp (arg, "version"))
-		puts ("D " PINENTRY_VERSTRING "\nOK");
-	    else if (!strcasecmp (arg, "pid"))
-		printf ("D %u\nOK\n", getpid());
-	    else
-		puts ("ERR 83886355 unknown command");
-	} else if (cmd == cmd_MESSAGE) {
-	    _dialogType = ShowMessage;
-	    RunMainDialog();
-	    puts ("OK");
-	} else if (cmd == cmd_OPTION && arg) {
-	    const char* value = strchr (arg, '=');
-	    value += !!value;
-	    if (!strcasecmp (arg, "no-grab"))
-		_nograb = true;
-	    else if (!strcasecmp (arg, "grab"))
-		_nograb = false;
-	    else if (!strcasecmp (arg, "parent-wid") && value)
-		_parentWindow = atoi (value);
-	    else if (!strcasecmp (arg, "display") && value) {
-		char* p = strdup (value);
-		if (p) {
-		    if (_displayName)
-			free (_displayName);
-		    _displayName = p;
+	switch (cmd) {
+	    case cmd_BYE:	puts ("OK closing connection"); return;
+	    case cmd_CONFIRM: {
+		_dialogType = AskYesNoQuestion;
+		bool accepted = RunMainDialog();
+		puts (accepted ? "OK" : "ERR 83886179 cancelled");
+	    }   break;
+	    case cmd_GETPIN: {
+		_dialogType = PromptForPassword;
+		bool accepted = RunMainDialog();
+		if (accepted) {
+		    PercentEscape (_password, sizeof(_password)-3);
+		    if (_confirms)
+			puts ("S PIN_REPEATED");
+		    printf ("D %s\nOK\n", _password);
+		} else
+		    puts ("ERR 83886179 cancelled");
+		memset (_password, _passwordLen = 0, sizeof(_password));
+	    }   break;
+	    case cmd_GETINFO:
+		if (!arg) {
+		    puts ("ERR argument required");
+		    break;
 		}
-	    }
-	    puts ("OK");
-	} else if (cmd == cmd_SETDESC && arg) {
-	    PercentUnescape (line, sizeof(line));
-	    char* p = strdup (arg);
-	    if (p) {
-		if (_description)
-		    free (_description);
-		_description = p;
-	    }
-	    puts ("OK");
-	} else if (cmd == cmd_SETPROMPT && arg) {
-	    PercentUnescape (line, sizeof(line));
-	    UnderscoreUnescape (line, sizeof(line));
-	    snprintf (_prompt, sizeof(_prompt), "%s:", arg);
-	    puts ("OK");
-	} else if (cmd == cmd_SETQUALITYBAR) {
-	    _confirms = true;
-	    if (!_prompt[0])
-		strcpy (_prompt, "Passphrase:");
-	    puts ("OK");
-	} else if (cmd == cmd_SETTIMEOUT && arg) {
-	    _entryTimeout = atoi(arg);
-	    puts ("OK");
-	} else if (cmd < cmd_NCMDS)	// SETTITLE and later commands are not supported in this implementation and are silently ignored
-	    puts ("OK");
-	else
-	    puts ("ERR 83886355 unknown command");
+		if (!strcasecmp (arg, "version"))
+		    puts ("D " PINENTRY_VERSTRING "\nOK");
+		else if (!strcasecmp (arg, "flavor"))
+		    puts ("D xlib\nOK");
+		else if (!strcasecmp (arg, "ttyinfo"))
+		    printf ("D - - %s\nOK", _displayName);
+		else if (!strcasecmp (arg, "pid"))
+		    printf ("D %u\nOK\n", getpid());
+		else
+		    puts ("ERR 83886355 unknown command");
+		break;
+	    case cmd_MESSAGE:
+		_dialogType = ShowMessage;
+		RunMainDialog();
+		puts ("OK");
+		break;
+	    case cmd_OPTION: {
+		if (!arg) {
+		    puts ("ERR argument required");
+		    break;
+		}
+		const char* value = strchr (arg, '=');
+		value += !!value;
+		if (!strcasecmp (arg, "no-grab"))
+		    _nograb = true;
+		else if (!strcasecmp (arg, "grab"))
+		    _nograb = false;
+		else if (!strcasecmp (arg, "parent-wid") && value)
+		    _parentWindow = atoi (value);
+		else if (!strcasecmp (arg, "display") && value) {
+		    char* p = strdup (value);
+		    if (p) {
+			if (_displayName)
+			    free (_displayName);
+			_displayName = p;
+		    }
+		}
+		puts ("OK");
+	    }	break;
+	    case cmd_SETDESC: {
+		if (!arg) {
+		    puts ("ERR argument required");
+		    break;
+		}
+		PercentUnescape (line, sizeof(line));
+		char* p = strdup (arg);
+		if (p) {
+		    if (_description)
+			free (_description);
+		    _description = p;
+		}
+		puts ("OK");
+	    }   break;
+	    case cmd_SETPROMPT:
+		if (!arg) {
+		    puts ("ERR argument required");
+		    break;
+		}
+		PercentUnescape (line, sizeof(line));
+		UnderscoreUnescape (line, sizeof(line));
+		snprintf (_prompt, sizeof(_prompt), "%s:", arg);
+		puts ("OK");
+		break;
+	    case cmd_SETREPEAT:
+	    case cmd_SETREPEATERROR:
+	    case cmd_SETQUALITYBAR:
+		_confirms = true;
+		if (!_prompt[0])
+		    strcpy (_prompt, "Passphrase:");
+		puts ("OK");
+		break;
+	    case cmd_SETTIMEOUT:
+		if (!arg) {
+		    puts ("ERR argument required");
+		    break;
+		}
+		_entryTimeout = atoi(arg);
+		puts ("OK");
+		break;
+	    case cmd_SETKEYINFO:	// no key info is displayed
+	    case cmd_CLEARPASSPHRASE:	// the passphrase is not cached
+	    case cmd_SETTITLE:		// this program's UI has no buttons
+	    case cmd_SETCANCEL:
+	    case cmd_SETERROR:
+	    case cmd_SETNOTOK:
+	    case cmd_SETOK:
+	    case cmd_SETQUALITYBAR_TT:	// or tooltips
+		puts ("OK");	// pretend everything went fine
+		break;
+	    default:
+		puts ("ERR 83886355 unknown command");
+		break;
+	}
     }
 }
 

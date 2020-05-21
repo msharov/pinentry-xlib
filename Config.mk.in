@@ -1,36 +1,30 @@
-################ Build options #######################################
-
-NAME		:= @PKG_NAME@
-MAJOR		:= @PKG_MAJOR@
-MINOR		:= @PKG_MINOR@
-
-#DEBUG		:= 1
+name		:= @pkg_name@
 
 ################ Programs ############################################
 
 CC		:= @CC@
-LD		:= @CC@
 INSTALL		:= @INSTALL@
-
-INSTALLEXE	:= ${INSTALL} -D -p -m 755 -o root -g root -s
-INSTALLDATA	:= ${INSTALL} -D -p -m 644 -o root -g root
-RMPATH		:= rmdir -p --ignore-fail-on-non-empty
+INSTALL_PROGRAM	:= ${INSTALL} -m 755 -s
 
 ################ Destination #########################################
 
-BINDIR		:= @bindir@
+prefix		:= @prefix@
+bindir		:= @bindir@
+TMPDIR		:= @TMPDIR@
+builddir	:= @builddir@/${name}
+O		:= .o/
 
 ################ Compiler options ####################################
 
-WARNOPTS	:= -Wall -Wextra -Wredundant-decls -Wshadow
-CFLAGS		:= ${WARNOPTS} -std=c99
-LDFLAGS		:=
-LIBS		:= @libX11@ @libXext@
-ifdef DEBUG
-    CFLAGS	+= -O0 -g
+#debug		:= 1
+libs		:= @pkglibs@
+ifdef debug
+    cflags	:= -O0 -ggdb3
+    ldflags	:= -g -rdynamic
 else
-    CFLAGS	+= -Os -g0 -DNDEBUG=1
-    LDFLAGS	+= -s
+    cflags	:= -Os -g0 -DNDEBUG=1
+    ldflags	:= -s
 endif
-BUILDDIR	:= @builddir@/${NAME}
-O		:= .o/
+CFLAGS		:= -Wall -Wextra -Wredundant-decls -Wshadow
+cflags		+= -std=c11 @pkgcflags@ ${CFLAGS}
+ldflags		+= @pkgldflags@ ${LDFLAGS}

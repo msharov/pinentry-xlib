@@ -4,13 +4,13 @@
 // This file is free software, distributed under the MIT License.
 
 #include "xdlg.h"
-#if !HAVE_X11_XLIB_H
+#if !__has_include(<X11/Xlib.h>) || !__has_include(<X11/Xutil.h>)
     #error "X11 development headers are required to compile pinentry"
 #endif
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <signal.h>
-#if HAVE_X11_EXTENSIONS_XDBE_H
+#if __has_include(<X11/extensions/Xdbe.h>)
     #include <X11/extensions/Xdbe.h>
 #endif
 
@@ -67,7 +67,7 @@ static XFontStruct* _wfontinfo = NULL;
 static unsigned long _fg = 0, _bg = 0;
 static unsigned _wwidth = 0;
 static unsigned _wheight = 0;
-#if HAVE_X11_EXTENSIONS_XDBE_H
+#if __has_include(<X11/extensions/Xdbe.h>)
     static XdbeBackBuffer _d = None;
 #endif
 
@@ -128,7 +128,7 @@ static bool OpenX (void)
     // Open display
     _display = XOpenDisplay (_displayName);
     if (!_display)
-	return (false);
+	return false;
     atexit (CloseX);
     signal (SIGALRM, OnAlarm);
     XSetErrorHandler (OnXlibError);
@@ -171,7 +171,7 @@ static bool OpenX (void)
     };
     //}}}
     XInternAtoms (_display, (char**) c_AtomNames, a_NAtoms, false, _atoms);
-    return (true);
+    return true;
 }
 
 static void CloseX (void)
@@ -206,7 +206,7 @@ static int OnXlibError (Display* dpy, XErrorEvent* e)
     XGetErrorText (dpy, e->error_code, errorbuf, sizeof(errorbuf));
     printf ("ERR X request %u.%u error: %s\n", e->request_code, e->minor_code, errorbuf);
     _timedOut = true;
-    return (0);
+    return 0;
 }
 
 static int OnXlibIOError (Display* dpy UNUSED)
@@ -215,7 +215,7 @@ static int OnXlibIOError (Display* dpy UNUSED)
     _display = NULL;
     puts ("ERR connection to X server terminated");
     exit (EXIT_FAILURE);
-    return (0);
+    return 0;
 }
 
 //----------------------------------------------------------------------
@@ -225,7 +225,7 @@ bool RunMainDialog (void)
 {
     if (!_display && !OpenX()) {
 	printf ("ERR Unable to open X display %s\n", _displayName);
-	return (false);
+	return false;
     }
     CreatePinentryWindow();
     for (XEvent e; !_timedOut;) {
@@ -266,7 +266,7 @@ bool RunMainDialog (void)
     ClosePinentryWindow();
     const bool r = _accepted;
     _accepted = false;	// Reset for next time
-    return (r);
+    return r;
 }
 
 static void CreatePinentryWindow (void)
@@ -320,7 +320,7 @@ static void CreatePinentryWindow (void)
     XChangeProperty (_display, _w, _atoms[a_NET_WM_STATE], _atoms[a_ATOM], 32, PropModeReplace, (const unsigned char*) &_atoms[a_NET_WM_STATE_NORMAL], 4);
 
     // Check if DOUBLE-BUFFER extension is available, and if it is, create a backbuffer
-    #if HAVE_X11_EXTENSIONS_XDBE_H
+    #if __has_include(<X11/extensions/Xdbe.h>)
 	int dbeMajor, dbeMinor;
 	if (XdbeQueryExtension (_display, &dbeMajor, &dbeMinor) && dbeMajor >= DBE_MAJOR_VERSION)
 	    _d = XdbeAllocateBackBufferName (_display, _w, XdbeBackground);
@@ -419,7 +419,7 @@ static void DrawWindow (void)
 {
     // Drawing the window indicates activity, so reset the timeout
     alarm (_entryTimeout);
-    #if HAVE_X11_EXTENSIONS_XDBE_H
+    #if __has_include(<X11/extensions/Xdbe.h>)
 	// If a backbuffer is available, then activate it. Will restore _w value at the end of this function.
 	Window wfront = _w;
 	if (_d != None)
@@ -468,7 +468,7 @@ static void DrawWindow (void)
 	    }
 	}
     }
-    #if HAVE_X11_EXTENSIONS_XDBE_H
+    #if __has_include(<X11/extensions/Xdbe.h>)
 	if (_d != None) {
 	    _w = wfront;
 	    XdbeSwapInfo si = { .swap_window = _w, .swap_action = XdbeBackground };
@@ -506,7 +506,7 @@ static unsigned ComputeQuality (void)
     // c_SetBits/16 is the set size for each character
     static const unsigned char c_SetBits[16] = { 0,53,75,83,75,83,91,95,81,87,94,98,94,98,103,105 };
     unsigned passwordBits = _passwordLen*c_SetBits[have]/16;
-    return (passwordBits > MAX_QUALITY ? MAX_QUALITY : passwordBits);
+    return passwordBits > MAX_QUALITY ? MAX_QUALITY : passwordBits;
 }
 
 static bool OnKey (wchar_t k)
@@ -520,11 +520,11 @@ static bool OnKey (wchar_t k)
 	_confirmBufLen = 0;
 	if (_confirmsPass > _confirms) {
 	    _confirmsPass = 0;
-	    return (_accepted = true);
+	    return _accepted = true;
 	}
     } else if (k == XK_Escape) {
 	_password[_passwordLen = 0] = 0;
-	return (true);
+	return true;
     } else if (k == XK_BackSpace || k == XK_Delete) {
 	if (_confirmsPass > 0) {
 	    if (_confirmBufLen > 0)
@@ -545,5 +545,5 @@ static bool OnKey (wchar_t k)
 	}
     }
     DrawWindow();
-    return (false);
+    return false;
 }

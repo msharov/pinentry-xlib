@@ -7,23 +7,17 @@
 #pragma once
 
 // Define to the one symbol short name of this package.
-#define PINENTRY_NAME			"@PKG_NAME@"
+#define PINENTRY_NAME			"@pkg_name@"
 // Define to the version of this package.
-#define PINENTRY_VERSION		@PKG_VERSION@
+#define PINENTRY_VERSION		@pkg_version@
 // Define to the version string of this package.
-#define PINENTRY_VERSTRING		"@PKG_VERSTR@"
+#define PINENTRY_VERSTRING		"@pkg_verstr@"
 // Define to the address where bug reports for this package should be sent.
-#define PINENTRY_BUGREPORT		"@PKG_BUGREPORT@"
+#define PINENTRY_BUGREPORT		"@pkg_bugreport@"
 
 // Using GNU-specific glibc features
 #define _GNU_SOURCE
 #define UNUSED __attribute__((unused))
-
-// Set to 1 if you have the Xlib header
-#undef HAVE_X11_XLIB_H
-
-// Set to 1 if you have the Xdbe header
-#undef HAVE_X11_EXTENSIONS_XDBE_H
 
 // Include the standard headers
 #include <limits.h>

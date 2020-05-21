@@ -33,7 +33,7 @@ int main (int argc, char* argv[])
 	RunAssuanProtocol();
     else if (RunMainDialog())
 	puts (_password);
-    return (EXIT_SUCCESS);
+    return EXIT_SUCCESS;
 }
 
 static void OnSignal (int sig)
@@ -46,8 +46,7 @@ static void OnSignal (int sig)
 static void InstallCleanupHandler (void)
 {
     #define S(n) (1<<(n))
-    const unsigned c_Sigmask = S(SIGINT)|S(SIGQUIT)|S(SIGTERM)|S(SIGPWR)|S(SIGILL)
-				|S(SIGBUS)|S(SIGFPE)|S(SIGSYS)|S(SIGSEGV)|S(SIGXCPU);
+    const unsigned c_Sigmask = S(SIGINT)|S(SIGQUIT)|S(SIGTERM)|S(SIGILL)|S(SIGBUS)|S(SIGFPE)|S(SIGSYS)|S(SIGSEGV)|S(SIGXCPU);
     #undef S
     for (unsigned i = 0; i < NSIG; ++i)
 	if ((1<<i) & c_Sigmask)
@@ -164,7 +163,7 @@ static enum ECmd MatchCommand (const char* l)
     for (i = 0; i < cmd_NCMDS; ++i)
 	if (0 == strncasecmp (c_Cmds[i], l, strlen(c_Cmds[i])))
 	    break;
-    return (i);
+    return i;
 }
 
 static void RunAssuanProtocol (void)

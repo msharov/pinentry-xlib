@@ -2,82 +2,90 @@
 
 ################ Source files ##########################################
 
-EXE	:= $O${NAME}
-SRCS	:= $(wildcard *.c)
-OBJS	:= $(addprefix $O,$(SRCS:.c=.o))
-DEPS	:= ${OBJS:.o=.d}
-
-CONFS	:= Config.mk config.h
-ONAME   := $(notdir $(abspath $O))
+exe	:= $O${name}
+srcs	:= $(wildcard *.c)
+objs	:= $(addprefix $O,$(srcs:.c=.o))
+deps	:= ${objs:.o=.d}
+confs	:= Config.mk config.h
+oname   := $(notdir $(abspath $O))
 
 ################ Compilation ###########################################
 
+.SUFFIXES:
 .PHONY: all clean distclean maintainer-clean
 
-all:	${EXE}
+all:	${exe}
 
-run:	${EXE}
-	@./${EXE}
+run:	${exe}
+	@$<
 
-${EXE}:	${OBJS}
+${exe}:	${objs}
 	@echo "Linking $@ ..."
-	@${LD} ${LDFLAGS} -o $@ $^ ${LIBS}
+	@${CC} ${ldflags} -o $@ $^ ${libs}
 
 $O%.o:	%.c
 	@echo "    Compiling $< ..."
-	@${CC} ${CFLAGS} -MMD -MT "$(<:.c=.s) $@" -o $@ -c $<
+	@${CC} ${cflags} -MMD -MT "$(<:.c=.s) $@" -o $@ -c $<
 
 %.s:	%.c
 	@echo "    Compiling $< to assembly ..."
-	@${CC} ${CFLAGS} -S -o $@ -c $<
+	@${CC} ${cflags} -S -o $@ -c $<
 
 ################ Installation ##########################################
 
-.PHONY:	install uninstall
+.PHONY:	install install-incs installdirs
+.PHONY:	uninstall uninstall-incs uninstall-lib uninstall-pc
 
-ifdef BINDIR
-EXEI	:= ${BINDIR}/$(notdir ${EXE})
+ifdef bindir
+exed	:= ${DESTDIR}${bindir}
+exei	:= ${bindir}/$(notdir ${exe})
 
-install:	${EXEI}
+${exed}:
+	@echo "Creating $@ ..."
+	@${INSTALL} -d $@
+${exei}:	${exe} | ${exed}
+	@echo "Installing $@ ..."
+	@${INSTALL_PROGRAM} $< $@
 
-${EXEI}:	${EXE}
-	@echo "Installing $< as $@ ..."
-	@${INSTALLEXE} $< $@
-
+installdirs:	${exed}
+install:	${exei}
 uninstall:
-	@if [ -f ${EXEI} ]; then\
-	    echo "Uninstalling ${EXE} ...";\
-	    rm -f ${EXEI};\
+	@if [ -f ${exei} ]; then\
+	    echo "Removing ${exei} ...";\
+	    rm -f ${exei};\
 	fi
 endif
 
 ################ Maintenance ###########################################
 
 clean:
-	@if [ -h ${ONAME} ]; then\
-	    rm -f ${EXE} ${OBJS} ${DEPS} $O.d ${ONAME};\
-	    ${RMPATH} ${BUILDDIR};\
+	@if [ -d ${builddir} ]; then\
+	    rm -f ${exe} ${objs} ${deps} $O.d;\
+	    rmdir ${builddir};\
 	fi
 
 distclean:	clean
-	@rm -f ${CONFS} config.status
+	@rm -f ${oname} ${confs} config.status
 
 maintainer-clean: distclean
 
-$O.d:	${BUILDDIR}/.d
-	@[ -h ${ONAME} ] || ln -sf ${BUILDDIR} ${ONAME}
+$O.d:	${builddir}/.d
+	@[ -h ${oname} ] || ln -sf ${builddir} ${oname}
 $O%/.d:	$O.d
 	@[ -d $(dir $@) ] || mkdir $(dir $@)
 	@touch $@
-${BUILDDIR}/.d:
+${builddir}/.d:	Makefile
 	@[ -d $(dir $@) ] || mkdir -p $(dir $@)
 	@touch $@
 
-${OBJS}:	Makefile ${CONFS} $O.d
 Config.mk:	Config.mk.in
 config.h:	config.h.in
-${CONFS}:	configure
-	@if [ -x config.status ]; then echo "Reconfiguring ..."; ./config.status; \
-	else echo "Running configure ..."; ./configure; fi
+${objs}:	Makefile ${confs} $O.d
+${confs}:	configure
+	@if [ -x config.status ]; then echo "Reconfiguring ...";\
+	    ./config.status;\
+	else echo "Running configure ...";\
+	    ./configure;\
+	fi
 
--include ${DEPS}
+-include ${dep}

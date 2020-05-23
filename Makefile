@@ -33,12 +33,11 @@ $O%.o:	%.c
 
 ################ Installation ##########################################
 
-.PHONY:	install install-incs installdirs
-.PHONY:	uninstall uninstall-incs uninstall-lib uninstall-pc
+.PHONY:	install installdirs uninstall
 
 ifdef bindir
 exed	:= ${DESTDIR}${bindir}
-exei	:= ${bindir}/$(notdir ${exe})
+exei	:= ${exed}/$(notdir ${exe})
 
 ${exed}:
 	@echo "Creating $@ ..."
